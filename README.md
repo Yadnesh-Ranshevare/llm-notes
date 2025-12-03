@@ -1,2 +1,1 @@
-# llm-notes
-Notes for understanding and building real AI system
+1. [LLM's](./LLM/readme.md)
