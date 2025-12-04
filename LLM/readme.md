@@ -6,6 +6,8 @@
 5. [Positional encoding](#positional-encoding)
 6. [Self Attention](#self-attention)
 7. [How LLM generate Response](#how-llm-generate-response)
+8. [Context Window](#context-window)
+
 
 ---
 
@@ -426,6 +428,64 @@ This is iterative approach and we predict the next word during each iteration un
     - softmax decides how creative our response cloud be
 
 
+
+[Go To Top](#content)
+
+---
+# Context Window
+A context window is the amount of text (tokens) an AI model can “see” at one time while answering.
+
+### Example:
+Suppose a model has a 100-token context window.
+
+That means it can read only 100 tokens worth of text at a time.
+
+If you give it 300 tokens:
+- It can only “remember” the latest 100
+- The earlier 200 fall out of the window
+
+Like a sliding window:
+```
+[ Old text falls out ]  [ Model can see this part ]
+```
+
+### How is Context Window Size Determined?
+The context window size is not chosen at runtime — it is fixed by the model’s architecture and training setup.
+
+It mainly depends on three things:
+1. Position Embedding Length:\
+If the model is trained with 10,000 positional embeddings, then:
+    - Max context = 10,000 tokens
+    - Model cannot read more than that
+2. Model Training Window:\
+If a transformer is trained with sequences of 4096 tokens, the context window becomes 4096.
+3. Memory & Compute Limits\
+Self-attention has O(n²) cost:
+    ```
+    tokens = n
+    operations ≈ n²
+    ```
+    So:
+    - 4k tokens → ~16M attention operations
+    - 100k tokens → 10 billion operations
+    - 1M tokens → 1 trillion operations (too expensive)
+
+    This limits how large the window can be.
+
+> New techniques (like linear attention, flash attention, ring attention) help push it to 100k–1M+ tokens.
+
+### Summary
+Context window size is determined by:
+
+1. How many positional embeddings the model has
+2. How long the sequences were during training
+3. How much memory the architecture can handle
+
+This is why different models have different limits:
+- earlier GPT → 4k
+- Llama → 8k–32k
+- GPT-4 → 128k
+- new models → 1M+ tokens
 
 [Go To Top](#content)
 
