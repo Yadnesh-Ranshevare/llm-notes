@@ -2,11 +2,12 @@
 1. [What is LLM](#what-is-llm)
 2. [Generative Pre-Trained Transformer (GPT)](#generative-pre-trained-transformer-gpt)
 3. [Tokenization and Encoding](#tokenization-and-encoding)
-4. [Vector Embeddings](#vector-embeddings)
-5. [Positional encoding](#positional-encoding)
-6. [Self Attention](#self-attention)
-7. [How LLM generate Response](#how-llm-generate-response)
-8. [Context Window](#context-window)
+4. [How to retrieve tokens using JS](#how-to-retrieve-tokens-using-js)
+5. [Vector Embeddings](#vector-embeddings)
+6. [Positional encoding](#positional-encoding)
+7. [Self Attention](#self-attention)
+8. [How LLM generate Response](#how-llm-generate-response)
+9. [Context Window](#context-window)
 
 
 ---
@@ -149,7 +150,7 @@ High vocabulary size -> we have huge list of tokens -> cover large number of dif
 
 example:
 - "hey" -> token 1
-- "there" -> token 2
+- "there" -> token 
 
 
 small vocabulary size -> we have small list of tokens -> cover less number of different words -> therefor we need high numbers of tokens for encoding
@@ -160,6 +161,139 @@ example:
 - "y" -> token 3
 
 > each llm model has their own vocabulary and the size of vocabulary changes from model to model
+
+
+
+[Go To Top](#content)
+
+---
+# How to retrieve tokens using JS
+1. install the dependencies
+```bash
+npm install @dqbd/tiktoken
+```
+2. Import `encoding_for_model` 
+```js
+import { encoding_for_model } from "@dqbd/tiktoken";
+```
+3. create `encoding_for_model` object
+```js
+const enc = encoding_for_model("gpt-4o");   // pass the LLM model whose token you want to compute
+```
+4. use `enc.encode()` to encode the text and `enc.decode()` to decode the tokens
+```js
+const text = "Hello! This is a tiktoken-lite example.";
+
+const tokens = enc.encode(text);    // → text of tokens
+
+const decoded = enc.decode(tokens); // token to text
+```
+
+### Full code
+```js
+import { encoding_for_model } from "@dqbd/tiktoken";
+
+const enc = encoding_for_model("gpt-4o");   // or "gpt-4", "gpt-3.5-turbo", etc.
+
+const text = "Hello! This is a tiktoken-lite example.";
+
+const tokens = enc.encode(text);
+console.log(tokens);             // → array of token IDs
+
+console.log(tokens.length);      // → number of tokens
+
+const decoded = enc.decode(tokens);
+console.log(decoded);            // → original text
+
+enc.free(); // clean up
+```
+Output:
+```
+Uint32Array(11) [
+  13225,    0,   1328,
+    382,  261,    260,
+   8251, 2488, 188964,
+   4994,   13
+]
+11
+Uint8Array(39) [
+   72, 101, 108, 108, 111,  33,  32,  84,
+  104, 105, 115,  32, 105, 115,  32,  97,
+   32, 116, 105, 107, 116, 111, 107, 101,
+  110,  45, 108, 105, 116, 101,  32, 101,
+  120,  97, 109, 112, 108, 101,  46
+]
+```
+
+> in case of `enc.decode()` You're actually getting the original text, but you're seeing it in raw bytes (Uint8Array) because tiktoken-lite returns binary data, not a JS string.
+
+
+### How to convert raw bytes (Unit8Array) to human readable text
+to convert raw bytes into human-readable string we use `TextDecoder`
+> TextDecoder is a built-in Web API (also available in Node.js) that converts raw bytes into a human-readable string.
+1. create the `enc.decode()` object 
+```js
+const decoded = enc.decode(tokens); // this is a Uint8Array (bytes)
+```
+2. Decode the Uint8Array into a string
+```js
+const decodedText = new TextDecoder("utf-8").decode(decoded);
+```
+> UTF-8 is the most common encoding format today.
+### Updated code
+```js
+import { encoding_for_model } from "@dqbd/tiktoken";
+
+const enc = encoding_for_model("gpt-4o");
+
+const text = "Hello! This is a tiktoken-lite example.";
+
+const tokens = enc.encode(text);
+console.log(tokens);             // token IDs
+
+console.log(tokens.length);      // number of tokens
+
+const decoded = enc.decode(tokens); // this is a Uint8Array (bytes)
+
+const decodedText = new TextDecoder("utf-8").decode(decoded);
+console.log(decodedText);        // → original text
+
+enc.free();
+```
+Output:
+```
+Uint32Array(11) [
+  13225,    0,   1328,
+    382,  261,    260,
+   8251, 2488, 188964,
+   4994,   13
+]
+11
+Hello! This is a tiktoken-lite example.
+```
+
+### Better know!
+- A WebAssembly module (WASM) is a low-level, super-fast, binary format that runs in web browsers and Node.js.
+- It gives you much better performance than plain JS for heavy tasks like tokenization, image processing, crypto, etc.
+- JavaScript is great for dynamic logic, but not ideal for CPU-intensive operations.
+- Browsers + Node needed a way to run fast, compiled code, 
+so WebAssembly was created.
+
+tiktoken runs the tokenizer inside a WebAssembly module, and every time you call:
+```js
+const enc = encoding_for_model("gpt-4o");
+```
+…it allocates memory for:
+- vocabulary tables
+- merge rules
+- internal buffers
+
+When you're done with that tokenizer instance, calling:
+```js
+enc.free();
+``` 
+tells the WASM runtime: \
+“I’m finished with this tokenizer — you can safely delete its memory.”
 
 
 [Go To Top](#content)
