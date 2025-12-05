@@ -6,9 +6,10 @@
 5. [Vector Embeddings](#vector-embeddings)
 6. [Positional encoding](#positional-encoding)
 7. [Self Attention](#self-attention)
-8. [How LLM generate Response](#how-llm-generate-response)
-9. [Context Window](#context-window)
-
+8. [How to inspect this vector representation of word](#how-to-inspect-this-vector-representation-of-word)
+9. [How LLM generate Response](#how-llm-generate-response)
+10. [Context Window](#context-window)
+11. [Token Cost and Token Limits](#token-cost-and-token-limits)
 
 ---
 
@@ -491,6 +492,58 @@ Multiple heads = multiple viewpoints = deeper understanding.
 [Go To Top](#content)
 
 ---
+# How to inspect this vector representation of word
+Here’s a clear JavaScript example showing how to generate and inspect vector embeddings for an input text using the OpenAI Embeddings API.
+
+### Using the OpenAI (oai) SDK — Node.js Example
+```js
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+async function getEmbedding(text) {
+  const response = await client.embeddings.create({
+    model: "text-embedding-3-large",   // or "text-embedding-3-small"
+    input: text
+  });
+
+  const embedding = response.data[0].embedding;
+  console.log("Embedding length:", embedding.length);
+  console.log("Embedding (first 10 numbers):", embedding.slice(0, 10));
+
+  return embedding;
+}
+
+getEmbedding("Hello, vector embeddings!"); 
+```
+### What this code does
+- Sends your text to the embedding model
+- Receives back a vector array (hundreds or thousands of numbers)
+- Logs:
+    - The vector size
+    - The first few numbers so you can inspect it
+
+Example output
+```
+Embedding length: 3072
+Embedding (first 10 numbers): [
+  0.0123, -0.0192, 0.0015, ...
+]
+```
+This vector is produced after the model has already applied:
+- tokenization
+- token embeddings
+- positional encodings
+- multiple transformer layers
+- multi-head self-attention
+
+But all of those steps happen inside the model, and you only get the final result.
+
+[Go To Top](#content)
+
+---
 
 # How LLM generate Response
 ```
@@ -608,6 +661,14 @@ Self-attention has O(n²) cost:
 
 > New techniques (like linear attention, flash attention, ring attention) help push it to 100k–1M+ tokens.
 
+### Stateless Architecture
+if your previous chat messages are still inside the context window, they are passed to the model again on every request.
+
+Therefor we can say that:\
+LLMs do not remember anything between requests.
+All “memory” must be resent each time.
+
+
 ### Summary
 Context window size is determined by:
 
@@ -620,6 +681,92 @@ This is why different models have different limits:
 - Llama → 8k–32k
 - GPT-4 → 128k
 - new models → 1M+ tokens
+
+[Go To Top](#content)
+
+---
+# Token Cost and Token Limits
+token cost and token limits, are useful when working with embeddings, chat models, or any LLM API.
+
+### What is a Token?
+A token is a unit of text used by the model.
+
+It can be:
+- a full word → `"fantastic"`
+- part of a word → `"embed"`, `"ding"`
+- punctuation → `"!"`
+- whitespace
+
+For English text, 1 token ≈ 3–4 characters, or 1 token ≈ 0.75 words.
+
+#### Example:
+```
+"Hello world!" → 3 tokens ("Hello", "world", "!")
+```
+
+### What is Token Cost?
+This is the money charged based on the number of tokens the model processes.
+
+There are two types:
+#### 1.  Input tokens (what you send)
+You are charged for:
+- your prompt
+- system instructions
+- messages
+- input text for embeddings
+
+#### 2. Output tokens (what the model generates)
+You’re also charged for:
+- the model’s response
+
+> Different models have different pricing for input vs output tokens.
+
+if your previous chat messages are still inside the context window, they are passed to the model again on every request.
+
+Therefor you pay again for the tokens of old messages If they are included in context window.
+
+#### Example:
+your context window size = 6000 tokens
+- pervious conversation = 5000 tokens
+- You send a new message of 10 tokens
+- You will pay for 5010 input tokens again, as context window is not yet filled.
+
+> therefor we can say that if your conversation goes on too long your overall cost for each request will be equal to token cost of context window same for each response
+>
+> reason: your context window will always be full
+
+#### How to avoid paying the full context-window cost on every request
+You prevent the context window from staying full by doing things like:
+1. **Summarizing older messages:**\
+Replace long sections of conversation with short summaries.
+2. **Truncating old messages**\
+Cut off history that is no longer relevant.
+3. **Using retrieval-based memory**\
+Store facts externally and fetch only what’s relevant using vector search. You don’t resend the whole conversation.
+4. **Keeping a smaller active history window**\
+Only include the last X messages (e.g., last 10 exchanges).
+5. **Stopping before reaching max context**\
+If your conversation is still short, cost stays low.
+
+6. **Using models that compress long contexts**\
+Some models internally compress earlier tokens, reducing effective history size.
+
+
+### What is a Token Limit?
+Every model has a maximum number of tokens it can handle at one time.
+This is called context length.
+
+For example:
+| Model                  | Max tokens (context window)  |
+| ---------------------- | ---------------------------- |
+| GPT-4.1                | ~128k context                |
+| GPT-4.1-mini           | ~128k context                |
+| text-embedding-3-large | ~3M tokens (for embeddings!) |
+
+#### Important:
+- Token limit includes both input and output.
+- For embeddings models, token limits are much larger than chat models.
+
 
 [Go To Top](#content)
 
