@@ -3,7 +3,10 @@
 2. [Installation](#installation)
 3. [Document Loaders](#document-loaders)
 4. [Text splitters](#text-splitters)
+5. [Embedding models](#embedding-models)
+6. [Vector Stores](#vector-stores)
 
+> for this tutorial wi'll be using Gemini api key (free api key)
 ---
 
 # Introduction
@@ -514,6 +517,294 @@ Output:
 [
   { pageContent: "This is some", metadata: { source: "file1.md" } },
   { pageContent: "text", metadata: { source: "file1.md" } }
+]
+```
+
+[Go To Top](#content)
+
+---
+# Embedding models
+Embedding models transform raw text—such as a sentence, paragraph, or tweet—into a fixed-length vector of numbers that captures its semantic meaning. 
+
+These vectors allow machines to compare and search text based on meaning rather than exact words.
+
+In practice, this means that texts with similar ideas are placed close together in the vector space. 
+
+For example, instead of matching only the phrase “machine learning”, embeddings can surface documents that discuss related concepts even when different wording is used.
+
+
+### How it works
+1. **Vectorization** — The model encodes each input string as a high-dimensional vector.
+2. **Similarity scoring** — Vectors are compared using mathematical metrics to measure how closely related the underlying texts are.
+
+
+### Similarity metrics
+Several metrics are commonly used to compare embeddings:
+- **Cosine similarity** — measures the angle between two vectors.
+- **Euclidean distance** — measures the straight-line distance between points.
+- **Dot product** — measures how much one vector projects onto another.
+
+> If you want you can study about them in details
+### Installation
+```bash
+npm i @langchain/google-genai
+```
+> this will only work for google-gemini embedding models
+>
+>visit [Langchain official doc](https://docs.langchain.com/oss/javascript/integrations/text_embedding#install-and-use) to see all available embedding models inside the langchain
+
+### Apply embedding to user query
+> use `.embedQuery()` to embed the users query
+```js
+import "dotenv/config";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+
+
+// visit https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY to check the available gemini models
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",        // embedding model
+    apiKey: process.env.API_KEY,
+});
+
+const query = "What is LangChain?"; // users query
+
+const queryVector = await embeddings.embedQuery(query);     // vectorize the user query
+
+console.log("Query embedding", queryVector);
+```
+Output:
+```
+Query embedding [
+   -0.011633233,   0.020551719,   -0.06830386,  0.009211681,  0.019681403,
+    0.010037485, -0.0071844985,  -0.042993635,  0.012465412,  0.031368688,
+    0.023457045,   0.029888691,  -0.004372305, -0.016773095, -0.018459162,
+   -0.048110675,   0.031264417,    0.01721032, -0.024691908,  0.020023072,
+    0.036955945,  -0.059124727,  -0.008912887, -0.096009605,  0.013825757,
+    0.030610308,  -0.014870974,  -0.009988508, -0.024374863,  -0.05932398,
+   -0.008637168,   0.012626924, -0.0135745965, -0.046352774, -0.041819047,
+   -0.007222278,   0.060340635,    0.06739573,  0.038038787,  -0.08511597,
+   0.0025634451,    0.04196518,   -0.02231868,  0.040211476,  0.004816831,
+    -0.01744626,  -0.006854303,  -0.035560902, -0.044005606,  0.046498597,
+    0.055162583,  -0.052838486,   0.004231976,  0.014036072,  -0.03367846,
+   -0.011453093,   -0.04240064,  -0.026344324,  0.015171018,  0.035251103,
+   -0.054377217,  -0.054407068,   -0.00492394,  0.005642689, -0.015765632,
+  -0.0040119356,  -0.024086278,  -0.025097437, -0.025110612, -0.010727468,
+   -0.018270561,   -0.03047294,  -0.052052747,   0.08847631, -0.030005176,
+   0.0002601074,   0.008671283,     -0.054352,  0.027962198,  0.054818887,
+    -0.04487978,   0.015204047,   0.080716215,   0.05270874,  0.023709174,
+   -0.021791607,  -0.037845265,   -0.03348395, -0.022787504, -0.019574404,
+     0.09191027,    0.01798471,  -0.057376504,  -0.03547161,  0.006236213,
+    -0.05575946,  -0.014101476,    -0.0369929,  0.014690064,   0.05317924,
+  ... 668 more items
+]
+```
+### Apply embedding to external document
+> use `.embedDocuments()` to embed the document
+```js
+import "dotenv/config";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
+
+// visit https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY to check the available gemini models
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+
+// load the document
+const pdfPath = "src/Documentloaders/docs/pdfLoder.pdf";
+const loader = new PDFLoader(pdfPath);
+const docs = await loader.load();
+
+const docVectors = await embeddings.embedDocuments([docs[0].pageContent]);  // make sure to pass it as array
+console.log("First document embedding:", docVectors);
+```
+Output:
+```
+First document embedding: [
+  [
+       0.025972286,   0.06951625,  -0.036884665,   0.006119636,
+    -0.00038492068,  0.037782744,    0.06710214,  0.0014668342,
+       0.030839918, -0.003994771,   0.006866431,   0.010528142,
+        0.03753436, -0.009272491,   0.047622565,  -0.009961679,
+        0.07707975,   0.06210175, -0.0105818445,  -0.027111871,
+      -0.015954804, -0.007481907,  0.0056739543,  -0.015849307,
+      -0.004006042,  0.007290338,  -0.023676949,  -0.028017782,
+       0.019127155, -0.005161905,   0.010407524,    0.05857893,
+      0.0038561267,  -0.06233286,     0.0559272,   0.027748844,
+      -0.023609092,  0.043413498,  -0.010317879,   -0.02025736,
+        -0.0728308, -0.002538186, -0.0065100435,    0.02764335,
+      -0.015824996,  -0.05881568,  -0.017992746,   -0.00113109,
+      -0.031587347,     0.029191,  -0.013843597,   0.004347335,
+       0.015786543,  0.010009333,   -0.04466593,   -0.05784301,
+      -0.040200606,  -0.04079447,   0.026107697,  -0.011604448,
+       0.012420686, -0.058606524,   0.026979115,   -0.05138485,
+     -0.0023128972, 0.0021711893,   -0.05682902,   0.020140886,
+       -0.07061889,  0.009255465,  -0.026517913,    0.03497874,
+       -0.08342945,  0.070646495,  -0.007701792,  -0.009733487,
+        0.05912657, -0.024372824,  0.0025202236,   0.020577025,
+      -0.014081955,  0.008690964,    0.04462121, -0.0047489987,
+       0.012904453,  0.015213231,   0.020345602,   -0.07314612,
+      -0.037905626,  -0.02175902,   0.038363066,    0.02339358,
+       0.006800187,  0.015965229,   0.089833125,  -0.045736484,
+       -0.06833667,  -0.09865769,   0.036999863,    0.03394796,
+    ... 668 more items
+  ]
+]
+```
+
+
+
+
+[Go To Top](#content)
+
+---
+# Vector Stores
+A vector-store stores embedded data and performs similarity search.
+
+LangChain provides a unified interface for vector stores, allowing you to:
+- **addDocuments** - Add documents to the store.
+- **delete** - Remove stored documents by ID.
+- **similaritySearch** - Query for semantically similar documents.
+
+### How to configure Vector store inside Langchain
+> as an example we'll be seeing how to configure ChromaDb (Vector Db), if you want you can setup whichever db you want it just changes how we create vector store object rest of the code remains the same
+> 
+> visit [Langchain official doc](https://docs.langchain.com/oss/javascript/integrations/vectorstores#all-vector-stores) to check the list all available vector db inside the langchain
+#### 1. install the dependencies
+```bash
+npm i chromadb
+```
+#### 2. import the `chroma` from `@langchain/community/vectorstores`
+```js
+import { Chroma } from "@langchain/community/vectorstores/chroma";
+```
+
+#### 3. create the embedding model
+```js
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+```
+#### 4. create the new object of `chroma`
+> Only this steps as we change the db otherwise rest of the configuration remains the same
+```js
+const vectorStore = new Chroma(embeddings, {
+  collectionName: "a-test-collection",  // you can give any name to your collection, in DB your vector will be stored under this collection
+  chromaCloudAPIKey: process.env.CHROMA_API_KEY,
+  clientParams: {
+    host: "api.trychroma.com",
+    port: 8000,
+    ssl: true,
+    tenant: process.env.CHROMA_TENANT,
+    database: process.env.CHROMA_DATABASE,
+  },
+});
+```
+> visit [Chroma](https://www.trychroma.com/) to get all the credentials
+
+> visit [Langchain official chroma doc](https://docs.langchain.com/oss/javascript/integrations/vectorstores/chroma) to understand how to set up chroma locally
+#### 5. use `vectorStore.addDocuments()` to add the documents inside the db
+```js
+import { Document } from "@langchain/core/documents";
+const document = new Document({
+  pageContent: "Hello world",
+});
+await vectorStore.addDocuments([document]);
+```
+to add multiple document at once
+```js
+await vectorStore.addDocuments([document1, document2, document3, document4], { ids: ["1", "2", "3", "4"] })    // no. of ids are equal to no. of documents we are adding 
+```
+> if you didn't provide ids array chroma db will assign random ids to each document 
+#### 6. use `vectorStore.similaritySearch()` to perform similarity search on stored data
+```js
+const results = await vectorStore.similaritySearch("Hello world", 10);
+```
+Many vector stores support parameters like:
+- k — number of results to return
+- filter — conditional filtering based on metadata (e.g., source, date)
+
+example
+```js
+vectorStore.similaritySearch("query", 2, { source: "tweets" });
+```
+#### 7. use `vectorStore.delete()` to delete the sorted data
+```js
+await vectorStore.delete({ ids: ["4"] });
+```
+
+### Complete code
+```js
+import "dotenv/config";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { Chroma } from "@langchain/community/vectorstores/chroma";
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+
+
+const document1 = {
+  pageContent: "The powerhouse of the cell is the mitochondria",
+  metadata: { source: "https://example.com" }
+};
+
+const document2 = {
+  pageContent: "Buildings are made out of brick",
+  metadata: { source: "https://example.com" }
+};
+
+const document3 = {
+  pageContent: "Mitochondria are made out of lipids",
+  metadata: { source: "https://example.com" }
+};
+
+const document4 = {
+  pageContent: "The 2024 Olympics are in Paris",
+  metadata: { source: "https://example.com" }
+}
+
+const documents = [document1, document2, document3, document4];
+
+const vectorStore = new Chroma(embeddings, {
+  collectionName: "a-test-collection",
+  chromaCloudAPIKey: process.env.CHROMA_API_KEY,
+  clientParams: {
+    host: "api.trychroma.com",
+    port: 8000,
+    ssl: true,
+    tenant: process.env.CHROMA_TENANT,
+    database: process.env.CHROMA_DATABASE,
+  },
+});
+
+await vectorStore.addDocuments(documents, { ids: ["1", "2", "3", "4"] });
+
+const filter = { source: "https://example.com" };
+
+const similaritySearchResults = await vectorStore.similaritySearch("biology", 2, filter);
+console.log("Similarity Search Results:", similaritySearchResults);
+
+// await vectorStore.delete({ ids: ["4"] });
+```
+Output:
+```
+Similarity Search Results: [
+  Document {
+    pageContent: 'Mitochondria are made out of lipids',
+    metadata: { source: 'https://example.com' },
+    id: '3'
+  },
+  Document {
+    pageContent: 'The powerhouse of the cell is the mitochondria',
+    metadata: { source: 'https://example.com' },
+    id: '1'
+  }
 ]
 ```
 
