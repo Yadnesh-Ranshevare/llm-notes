@@ -1,0 +1,7 @@
+{
+  "texts": ["This is a sentence.", "This is another sentence."],
+  "nestedTexts": {
+    "one": "This is a sentence nested in an object.",
+    "two": "This is another sentence nested in an object."
+  }
+}
