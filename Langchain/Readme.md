@@ -5,6 +5,7 @@
 4. [Text splitters](#text-splitters)
 5. [Embedding models](#embedding-models)
 6. [Vector Stores](#vector-stores)
+7. [Integrating with Gemini](#integrating-with-gemini)
 
 > for this tutorial wi'll be using Gemini api key (free api key)
 ---
