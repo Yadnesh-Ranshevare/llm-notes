@@ -1,12 +1,13 @@
 import { UnstructuredClient } from "unstructured-client";
 import { Strategy } from "unstructured-client/sdk/models/shared";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import fs from "fs/promises";
 import path from "path";
 import zlib from "zlib";
 import "dotenv/config";
 import { HumanMessage } from "@langchain/core/messages";
 import { Document } from "@langchain/core/documents";
+import { Chroma } from "@langchain/community/vectorstores/chroma";
 
 const client = new UnstructuredClient({
     serverURL: "https://api.unstructuredapp.io/general/v0/general", // or a hard-coded URL
@@ -15,8 +16,7 @@ const client = new UnstructuredClient({
     },
 });
 
-async function chunkFile() {
-    const filepath = "./src/UnstructuredChunking/unstructured.pdf";
+async function chunkFile(filepath) {
 
     const fileBuffer = await fs.readFile(filepath);
     const fileName = path.basename(filepath);
@@ -39,7 +39,7 @@ async function chunkFile() {
         });
 
         console.log("✅ SUCCESS! chunked complete.");
-        console.log(response[4]);
+        // console.log(response[4]);
 
         function separate_content_types(elements) {
             const content_types = {
@@ -140,15 +140,17 @@ async function chunkFile() {
                 new Document({
                     pageContent: EnhancedSummary ? EnhancedSummary : content_types.text,
                     metadata: {
-                        original_content: {
-                            table: [...content_types.table],
-                            image: [...content_types.image],
-                            text: [...content_types.text],
-                        },
+                        original_content: JSON.stringify({
+                            table: content_types.table,
+                            image: content_types.image,
+                            text: content_types.text,
+                        }),
                     },
                 })
             );
         }
+
+        return langchain_document;
     } catch (error) {
         console.error("❌ Error details:", {
             message: error.message,
@@ -158,4 +160,32 @@ async function chunkFile() {
     }
 }
 
-chunkFile();
+const chunks = await chunkFile("./src/UnstructuredChunking/unstructured.pdf");
+
+
+
+// console.log(old_chunks[4]);
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+
+const vectorStore = new Chroma(embeddings, {
+  collectionName: "a-test-collection",
+  chromaCloudAPIKey: process.env.CHROMA_API_KEY,
+  clientParams: {
+    host: "api.trychroma.com",
+    port: 8000,
+    ssl: true,
+    tenant: process.env.CHROMA_TENANT,
+    database: process.env.CHROMA_DATABASE,
+  },
+});
+
+await vectorStore.addDocuments(chunks, { ids: old_chunks.map((_, idx) => (idx + 1).toString()) });
+
+const query = "What are the two main components of the Transformer architecture? "
+
+
+const similaritySearchResults = await vectorStore.similaritySearch(query, 2);
+console.log("Similarity Search Results:", similaritySearchResults);

@@ -896,21 +896,22 @@ from one title element to the next title element all of the element are in one g
 - each compositeElement is our one chunk
 
 ### How to handle Images and tables
-- unlike paragraph which we can directly pass to LLM, images and table are needed to be handled separately
+- unlike paragraph which we can directly stored in vector db for similarity search, images and table are needed to be handled separately
 - in unstructured io we get img in base64 format and table in html format
 - we need information in raw text format because embedding is done on text content
-- Therefor we use LLM to convert this img base64 and html table information into raw text format 
+- if we perform embedding on base64 img or html table we will decrease the performance of similarity search
+- Therefor we use LLM to convert this img_base64 and html table into raw text format 
 - now once we get the our whole info in text format we perform embedding
 
-### How to make LLM calls
+### How to Retrieve the original info
 - even though we have updated the information at the time of embedding, we still need to send the original info to LLM 
 - to do that we store the original content (base64 img, html tables) in metadata
-- at the time of LLM call we send the actual data using this stored metadata 
+- at the time of LLM call(when we are answering users query) we send the actual data using this stored metadata 
 
 ### Flowchart
 <img src="../images/unstructured_chunking_flow.png" style="width:800px">
 
->here, each enhanced chunk will carry the AI enhanced text with its actual original information
+>here, each enhanced chunk will carry the AI enhanced text with its original information (original atomic elements) present inside the metadata
 
 ### Algorithm
 1. perform the partitioning of the original document using unstructured io
@@ -1305,6 +1306,7 @@ async function create_ai_enhanced_summary(text, table, image) {
     });
 }
 ```
+> `data:image/jpeg;base64,${img}` this url generate the png files from base64 format of image
 #### 5: invoke your LLM to generate the enhanced summary
 ```js
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
