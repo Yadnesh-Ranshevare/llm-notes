@@ -5,9 +5,12 @@
 4. [How Traditional RAG works](#how-traditional-rag-works)
 5. [Langchain](../Langchain/Readme.md)
 6. [Unstructured Chunking](#unstructured-chunking)
-6. [Multi-query RAG](#multi-query-rag)
 7. [How to Preserve the History?](#how-to-preserve-the-history)
+8. [Multi-query RAG](#multi-query-rag)
+9. [Reciprocal Rank Fusion (RRF)](#reciprocal-rank-fusion-rrf)
+10. [Hybrid Search](#hybrid-search)
 
+> all the code snippets are available at [Langchain](../Langchain/) folder
 
 ----
 
@@ -695,191 +698,6 @@ async function create_ai_enhanced_summary(text, table, image) {
 [Go To Top](#content)
 
 ---
-
-
-# Multi-query RAG
-Multi-query RAG is an advanced technique in Retrieval-Augmented Generation that generates multiple variations of the original user query using an LLM
-
-It retrieves relevant documents for each variant of query in parallel, and then fuses the results (often via Reciprocal Rank Fusion) to improve retrieval coverage and relevance.
-
-### How It Works
-An LLM expands a single query into several semantically diverse versions, to address query ambiguity or incompleteness.
-
-Each variant queries retriever independently, yielding broader document recall, after which all the retrieve documents are merged
-
-This differs Multi-query RAG from single-query RAG by reducing the challenges that arises due to using different vocabulary for similar meaning 
-
-### Work flow
-1. **Take user question:**\
-Receive the original query (and optionally turn it into a clear standalone question).
-2. **Generate multiple queries**\
-Ask the LLM to produce a few different reformulations/expansions of that question (e.g., 3–5).
-3. **Retrieve for each query**\
-For each reformulated query, run a top‑k retrieval against your index (vector or hybrid).
-4. **Merge results**\
-Combine all retrieved documents into one set and rank them (e.g., using Reciprocal Rank Fusion).
-5. **Select final context**\
-Take the top‑N documents from the merged list as your context.
-
-6. **Call LLM for answer**\
-Send the original user question plus the selected documents to the LLM to generate the final answer.
-
-### Code
-#### 1. Take user question:
-```js
-const original_query = "What are the two main components of the Transformer architecture? "
-```
-#### 2. Generate multiple queries using llm
-initiate llm
-```js
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-
-const llm = new ChatGoogleGenerativeAI({
-    model: "models/gemini-2.5-flash",
-    apiKey: process.env.API_KEY,
-});
-```
-as we want structured output:
-```js
-import { z } from "zod";
-
-// what structure your llm should follow to generate the output
-const QueryVariationsSchema = z.object({
-  queries: z.array(z.string())
-});
-
-const llmWithTool = llm.withStructuredOutput(QueryVariationsSchema)
-```
-write a suitable prompt
-```js
-const prompt = `Generate 3 different variations of this query that would help retrieve relevant documents:
-
-Original query: ${original_query}
-
-Return 3 alternative queries that rephrase or approach the same question from different angles.`
-```
-Invoke the llm
-```js
-const res = await llmWithTool.invoke(prompt)
-```
-complete code
-```js
-import "dotenv/config";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { z } from "zod";
-
-const QueryVariationsSchema = z.object({
-  queries: z.array(z.string())
-});
-
-const original_query = "What are the two main components of the Transformer architecture? "
-
-
-const llm = new ChatGoogleGenerativeAI({
-    model: "models/gemini-2.5-flash",
-    apiKey: process.env.API_KEY,
-});
-
-const llmWithTool = llm.withStructuredOutput(QueryVariationsSchema)
-
-const prompt = `Generate 3 different variations of this query that would help retrieve relevant documents:
-
-Original query: ${original_query}
-
-Return 3 alternative queries that rephrase or approach the same question from different angles.`
-
-const res = await llmWithTool.invoke(prompt)
-console.log(res)
-```
-output:
-```js
-{
-  queries: [
-    'Identify the primary constituents of the Transformer architecture.',
-    'Can you name the two main building blocks of a Transformer model?',
-    "What are the fundamental modules comprising the Transformer's design?"
-  ]
-}
-```
-#### 3. retrieve the relevant document for all this 3 queries
-```js
-const allResults = [];
-
-for (const query of res.queries) {
-    const similaritySearchResults = await vectorStore.similaritySearch(query, 3);
-    allResults.push(similaritySearchResults);
-}
-console.log("All Similarity Search Results:", allResults);
-```
-output:
-```
-allResults = [
-    [Doc1, Doc2, Doc3],  ← Query 1 results
-    [Doc2, Doc1, Doc6],  ← Query 2 results  
-    [Doc8, Doc2, Doc9]   ← Query 3 results
-]
-```
-### Complete code
-```js
-import "dotenv/config";
-import { ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { Chroma } from "@langchain/community/vectorstores/chroma";
-import { z } from "zod";
-
-const QueryVariationsSchema = z.object({
-    queries: z.array(z.string()),
-});
-
-const original_query = "What are the two main components of the Transformer architecture? ";
-
-const llm = new ChatGoogleGenerativeAI({
-    model: "models/gemini-2.5-flash",
-    apiKey: process.env.API_KEY,
-});
-
-const llmWithTool = llm.withStructuredOutput(QueryVariationsSchema);
-
-const prompt = `Generate 3 different variations of this query that would help retrieve relevant documents:
-
-Original query: ${original_query}
-
-Return 3 alternative queries that rephrase or approach the same question from different angles.`;
-
-const res = await llmWithTool.invoke(prompt);
-console.log(res);
-
-const embeddings = new GoogleGenerativeAIEmbeddings({
-    model: "text-embedding-004",
-    apiKey: process.env.API_KEY,
-});
-
-const vectorStore = new Chroma(embeddings, {
-    collectionName: "a-test-collection",
-    chromaCloudAPIKey: process.env.CHROMA_API_KEY,
-    clientParams: {
-        host: "api.trychroma.com",
-        port: 8000,
-        ssl: true,
-        tenant: process.env.CHROMA_TENANT,
-        database: process.env.CHROMA_DATABASE,
-    },
-});
-
-const allResults = [];
-
-for (const query of res.queries) {
-    const similaritySearchResults = await vectorStore.similaritySearch(query, 3);
-    allResults.push(similaritySearchResults);
-}
-console.log("All Similarity Search Results:", allResults);
-```
-
-
-
-
-[Go To Top](#content)
-
----
 # How to Preserve the History?
 In basic RAG each query is treated independently. The retriever takes your exact question and search for chunk
 
@@ -1125,6 +943,542 @@ Google was founded on September 4, 1998.
 ----- Follow-up Question -----
 Searching for: Who founded Google?
 Google was founded by American computer scientists Larry Page and Sergey Brin.
+```
+
+
+[Go To Top](#content)
+
+---
+
+
+
+
+
+
+# Multi-query RAG
+Multi-query RAG is an advanced technique in Retrieval-Augmented Generation that generates multiple variations of the original user query using an LLM
+
+It retrieves relevant documents for each variant of query in parallel, and then fuses the results (often via Reciprocal Rank Fusion) to improve retrieval coverage and relevance.
+
+### How It Works
+An LLM expands a single query into several semantically diverse versions, to address query ambiguity or incompleteness.
+
+Each variant queries retriever independently, yielding broader document recall, after which all the retrieve documents are merged
+
+This differs Multi-query RAG from single-query RAG by reducing the challenges that arises due to using different vocabulary for similar meaning 
+
+### Work flow
+1. **Take user question:**\
+Receive the original query (and optionally turn it into a clear standalone question).
+2. **Generate multiple queries**\
+Ask the LLM to produce a few different reformulations/expansions of that question (e.g., 3–5).
+3. **Retrieve for each query**\
+For each reformulated query, run a top‑k retrieval against your index (vector or hybrid).
+4. **Merge results**\
+Combine all retrieved documents into one set and rank them (e.g., using Reciprocal Rank Fusion).
+5. **Select final context**\
+Take the top‑N documents from the merged list as your context.
+
+6. **Call LLM for answer**\
+Send the original user question plus the selected documents to the LLM to generate the final answer.
+
+### Code
+#### 1. Take user question:
+```js
+const original_query = "What are the two main components of the Transformer architecture? "
+```
+#### 2. Generate multiple queries using llm
+initiate llm
+```js
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+```
+as we want structured output:
+```js
+import { z } from "zod";
+
+// what structure your llm should follow to generate the output
+const QueryVariationsSchema = z.object({
+  queries: z.array(z.string())
+});
+
+const llmWithTool = llm.withStructuredOutput(QueryVariationsSchema)
+```
+write a suitable prompt
+```js
+const prompt = `Generate 3 different variations of this query that would help retrieve relevant documents:
+
+Original query: ${original_query}
+
+Return 3 alternative queries that rephrase or approach the same question from different angles.`
+```
+Invoke the llm
+```js
+const res = await llmWithTool.invoke(prompt)
+```
+complete code
+```js
+import "dotenv/config";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+
+const QueryVariationsSchema = z.object({
+  queries: z.array(z.string())
+});
+
+const original_query = "What are the two main components of the Transformer architecture? "
+
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const llmWithTool = llm.withStructuredOutput(QueryVariationsSchema)
+
+const prompt = `Generate 3 different variations of this query that would help retrieve relevant documents:
+
+Original query: ${original_query}
+
+Return 3 alternative queries that rephrase or approach the same question from different angles.`
+
+const res = await llmWithTool.invoke(prompt)
+console.log(res)
+```
+output:
+```js
+{
+  queries: [
+    'Identify the primary constituents of the Transformer architecture.',
+    'Can you name the two main building blocks of a Transformer model?',
+    "What are the fundamental modules comprising the Transformer's design?"
+  ]
+}
+```
+#### 3. retrieve the relevant document for all this 3 queries
+```js
+const allResults = [];
+
+for (const query of res.queries) {
+    const similaritySearchResults = await vectorStore.similaritySearch(query, 3);
+    allResults.push(similaritySearchResults);
+}
+console.log("All Similarity Search Results:", allResults);
+```
+output:
+```
+allResults = [
+    [Doc1, Doc2, Doc3],  ← Query 1 results
+    [Doc2, Doc1, Doc6],  ← Query 2 results  
+    [Doc8, Doc2, Doc9]   ← Query 3 results
+]
+```
+### Complete code
+```js
+import "dotenv/config";
+import { ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { Chroma } from "@langchain/community/vectorstores/chroma";
+import { z } from "zod";
+
+const QueryVariationsSchema = z.object({
+    queries: z.array(z.string()),
+});
+
+const original_query = "What are the two main components of the Transformer architecture? ";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const llmWithTool = llm.withStructuredOutput(QueryVariationsSchema);
+
+const prompt = `Generate 3 different variations of this query that would help retrieve relevant documents:
+
+Original query: ${original_query}
+
+Return 3 alternative queries that rephrase or approach the same question from different angles.`;
+
+const res = await llmWithTool.invoke(prompt);
+console.log(res);
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+
+const vectorStore = new Chroma(embeddings, {
+    collectionName: "a-test-collection",
+    chromaCloudAPIKey: process.env.CHROMA_API_KEY,
+    clientParams: {
+        host: "api.trychroma.com",
+        port: 8000,
+        ssl: true,
+        tenant: process.env.CHROMA_TENANT,
+        database: process.env.CHROMA_DATABASE,
+    },
+});
+
+const allResults = [];
+
+for (const query of res.queries) {
+    const similaritySearchResults = await vectorStore.similaritySearch(query, 3);
+    allResults.push(similaritySearchResults);
+}
+console.log("All Similarity Search Results:", allResults);
+```
+
+
+
+
+[Go To Top](#content)
+
+---
+# Reciprocal Rank Fusion (RRF)
+Reciprocal Rank fusion (RRF) is a method that combine multiple ranked chunk list by giving each chunk a score on its position across all lists
+
+### Ranked chunk
+In RAG (Retrieval-Augmented Generation), ranking is the step where the system sorts the retrieved documents according to how relevant they are to the user’s query.
+
+A ranked chunk is simply a retrieved text chunk that has been scored and sorted by relevance to the user’s query during a RAG pipeline.
+
+**example**
+
+When you do retrieval, you usually get many chunks from your vector store.
+
+Like:
+- Chunk A
+- Chunk B
+- Chunk C
+- Chunk D
+
+Each chunk gets a relevance score (from cosine similarity or a reranker model).
+
+After scoring, you get something like:
+
+| Chunk   | Score |
+| ------- | ----- |
+| Chunk C | 0.91  |
+| Chunk A | 0.87  |
+| Chunk D | 0.55  |
+| Chunk B | 0.31  |
+
+
+These are now called ranked chunks — the list is sorted from most relevant to least relevant.
+
+Only the top-ranked chunks (e.g., top 2–5) are passed into the LLM context.
+> Better ranking → better answers.
+
+
+### Formula
+
+$${RRF\ score} = \sum \left(\frac{1}{k + rank\ position}\right)$$
+
+- k = constant (in most of the cases it is assume to be 60)
+- rank position = position of the chunk in the query result
+
+### Example
+
+Query: “How to connect MongoDB using Node.js?”
+
+Retriever 1 (BM25)
+1. C1 – Express + MongoDB example
+2. C4 – MongoDB connection URI doc
+3. C3 – Mongoose basics
+
+Retriever 2 (Embeddings)
+1. C3 – Mongoose basics
+2. C1 – Express + MongoDB example
+3. C2 – React frontend
+
+Apply RRF (k = 0)
+
+| Chunk | BM25 Rank | Embedding Rank | RRF Score for BM25  | RRF Score for Embeddings | Final RRF score
+| ----- | --------- | -------------- | ------------------- | ----- | --- 
+| C1    | 1         | 2              | 1/1 = 1  | 1/2 = 0.5 | 1 + 0.5 = 1.5
+| C2    | —         | 3              |   —         | 1/3 = 0.33 | 0.33
+| C3    | 3         | 1              | 1/3 = 0.33  |1/1 = 1 | 0.33 + 1 = 1.33
+| C4    | 2         | —              | 1/2 = 0.5 | — | 0.5
+
+
+Final Ranking:
+1. C1 → best combined score
+2. C3 → strong, but slightly less
+3. C4 → only one list but still somewhat relevant
+4. C2 → weakest relevance
+> as C1 > C3 > C4 > C2
+
+### Significance of k = 60 and k = 0
+The constant k in Reciprocal Rank Fusion is used to control how much the rank position affects the final score.
+
+It’s not a magic number — it’s a practical default chosen because it works well across many retrieval tasks.
+
+we generally keep it as 60 (k=60) here are some reasons why:
+
+#### It prevents the top ranks from dominating too much
+If k were small (like 1 or 5), the first few ranks would get massive score differences:
+
+- rank 1 → 1/(small number) = big score
+- rank 2 → much smaller
+- rank 3 → tiny
+
+That would mean only the top-1 or top-2 results matter, and everything else is ignored.
+
+Setting k = 60 smooths the curve:
+- rank 1 → 1/61
+- rank 2 → 1/62
+- rank 10 → 1/70
+- rank 50 → 1/110
+
+All of these are close enough that multiple retrievers can influence the result.
+
+#### It balances sparse and dense retrievers
+
+BM25 and Embedding retrievers often rank documents very differently.\
+With k = 60:
+- A doc at rank 1 in BM25
+- and rank 30 in Embeddings
+
+…can still combine to a reasonable total score.
+
+If k were too small, rank 30 would be almost useless.
+
+#### It handles long rankings safely
+
+Many retrieval systems return 100, 200, or 1000 chunks.\
+With k = 60, even ranks like 200 still contribute a non-zero, but very small amount.
+
+This avoids ignoring long-tail evidence entirely.
+
+#### It’s a widely tested default
+
+RRF came from IR (Information Retrieval) research.\
+Through benchmarks on TREC datasets, researchers found:
+
+k = 60 consistently gave strong results across domains
+
+So most libraries and papers copy this default.
+
+You can tune it, but 60 is the usual sweet spot.
+
+[Go To Top](#content)
+
+---
+# Hybrid Search
+Hybrid search is an information retrieval approach that combines traditional keyword (lexical/sparse) search with semantic (vector/dense) search to produce more accurate and context-aware results than either method alone.
+
+It combine:
+### 1. Keyword search
+Keyword search, also called lexical or sparse search, is a traditional information retrieval method that finds documents containing exact keywords or phrases from the user's query, using techniques like inverted indexes and scoring models such as BM25 or TF-IDF.
+
+Example: Searching for "python list comprehension" in documentation or code repositories.
+
+Now:
+1. User enters keywords (e.g., "python list comprehension")
+2. Query breaks into terms ("python", "list", "comprehension")
+3. Inverted index lookup - find all docs containing each term
+4. Score each document using BM25/TF-IDF:
+    - TF: How often term appears in doc
+    - IDF: How rare term is across corpus
+5. Rank and sort docs by combined score
+6. Return top results (exact phrase matches rank higher)
+
+
+### 2. Vector search
+Vector search (often called semantic search) is a retrieval method that finds “meaningfully similar” items by comparing vector embeddings instead of matching raw keywords.
+
+Example: Searching for "python list comprehension" in documentation or code repositories.
+
+1. Embed the query\
+Convert "python list comprehension" → vector [0.23, -0.15, 0.87, ...] using embedding model (e.g., OpenAI text-embedding-ada-002)
+2. Embed documents (pre-computed)\
+Each doc chunk already has vectors stored in vector DB (Chroma, Pinecone, etc.)
+3. Compute similarity\
+For each doc vector, calculate cosine similarity:
+4. Find nearest neighbors\
+Use ANN index (HNSW, IVF) to quickly find top-k closest vectors (e.g., top-10 most similar)
+5. Rank and return
+    - Sort by similarity score (1.0 = identical meaning, 0 = unrelated)
+    - Returns docs about list comprehensions, array iteration, even if they say "list iteration syntax"
+
+### Why hybrid search is better?
+Hybrid search is often better because it combines the strengths of keyword search (exact matching, filters) and vector search (semantic matching), giving higher recall and precision across many query types.
+
+#### Why it’s stronger than keyword-only
+- Keyword search is great when the user knows the exact terms, codes, or product names, but it fails on synonyms, paraphrases, and vague natural language queries.​
+- Hybrid search still uses those exact matches but also brings in semantically related content via vectors, so relevant results appear even when the wording does not match exactly.
+
+#### Why it’s stronger than vector-only
+- Pure vector search can surface semantically similar but “legally wrong” or off-domain results if strict terms (IDs, regulation numbers, error codes) must match exactly.​
+- Hybrid search can boost or filter by exact keyword conditions while ranking by semantic similarity, which improves control, explainability, and relevance for production apps like RAG, e‑commerce, and enterprise search
+
+### Example
+Searching for "python list comprehension" in documentation or code repositories.
+
+Now:
+
+1. User sends query\
+Input: `"python list comprehension"`.
+
+2. Keyword search branch
+    - Break query into tokens: "python", "list", "comprehension".
+    - Look up these terms in an inverted index and score documents with something like BM25/TF‑IDF.
+    - Get a ranked list of docs based on exact/phrase matches.
+3. Vector (semantic) search branch
+    - Convert the query text into an embedding vector.
+    - Compare this vector to precomputed document embeddings (nearest‑neighbor search).
+    - Get a ranked list of semantically similar docs (including ones that say “iterate over a list”, “loop over array”, etc., even if they don’t use the exact phrase).
+4. Combine the two result lists
+    - Take the keyword list and the vector list and fuse them into one list.
+    - A common way is to use a rank-based method (e.g., give each doc points based on how high it appears in each list, then sum and sort).
+5. Return final ranked results
+    - Strongly match the exact phrase “python list comprehension”.
+    - Also include highly relevant docs that explain the same concept with different wording.
+
+### Code
+1. vector search retriever
+```js
+import "dotenv/config";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { Chroma } from "@langchain/community/vectorstores/chroma";
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+
+const vectorStore = new Chroma(embeddings, {
+    collectionName: "a-test-collection",
+    chromaCloudAPIKey: process.env.CHROMA_API_KEY,
+    clientParams: {
+        host: "api.trychroma.com",
+        port: 8000,
+        ssl: true,
+        tenant: process.env.CHROMA_TENANT,
+        database: process.env.CHROMA_DATABASE,
+    },
+});
+
+await vectorStore.addDocuments(documents, { ids: documents.map((doc) => doc.metadata.id) });
+
+const vectorRetriever = vectorStore.asRetriever( {k: 3} );
+```
+2. keyword search retriever
+```js
+import { BM25Retriever } from "@langchain/community/retrievers/bm25";
+
+const bm25retriever = BM25Retriever.fromDocuments(documents, {k: 3});
+```
+3. hybrid search retriever
+```js
+
+const hybridRetriever = new EnsembleRetriever({
+  retrievers: [vectorRetriever, bm25retriever],
+  weights: [0.7, 0.3]  // 70% vector, 30% BM25/keyword
+});
+```
+
+### Complete code
+```js
+import "dotenv/config";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { BM25Retriever } from "@langchain/community/retrievers/bm25";
+import { Chroma } from "@langchain/community/vectorstores/chroma";
+import { EnsembleRetriever } from "@langchain/classic/retrievers/ensemble";
+
+// some sample text chunks
+const chunks = [
+    "Microsoft acquired GitHub for 7.5 billion dollars in 2018.",
+    "Tesla Cybertruck production ramp begins in 2024.",
+    "Google is a large technology company with global operations.",
+    "Tesla reported strong quarterly results. Tesla continues to lead in electric vehicles. Tesla announced new manufacturing facilities.",
+    "SpaceX develops Starship rockets for Mars missions.",
+    "The tech giant acquired the code repository platform for software development.",
+    "NVIDIA designs Starship architecture for their new GPUs.",
+    "Tesla Tesla Tesla financial quarterly results improved significantly.",
+    "Cybertruck reservations exceeded company expectations.",
+    "Microsoft is a large technology company with global operations.",
+    "Apple announced new iPhone features for developers.",
+    "The apple orchard harvest was excellent this year.",
+    "Python programming language is widely used in AI.",
+    "The python snake can grow up to 20 feet long.",
+    "Java coffee beans are imported from Indonesia.",
+    "Java programming requires understanding of object-oriented concepts.",
+    "Orange juice sales increased during winter months.",
+    "Orange County reported new housing developments.",
+];
+
+// convert them into langchain documents
+const documents = chunks.map((chunk, index) => ({
+    pageContent: chunk,
+    metadata: { id: (index + 1).toString() },
+}));
+
+const embeddings = new GoogleGenerativeAIEmbeddings({
+    model: "text-embedding-004",
+    apiKey: process.env.API_KEY,
+});
+
+const vectorStore = new Chroma(embeddings, {
+    collectionName: "a-test-collection",
+    chromaCloudAPIKey: process.env.CHROMA_API_KEY,
+    clientParams: {
+        host: "api.trychroma.com",
+        port: 8000,
+        ssl: true,
+        tenant: process.env.CHROMA_TENANT,
+        database: process.env.CHROMA_DATABASE,
+    },
+});
+
+await vectorStore.addDocuments(documents, { ids: documents.map((doc) => doc.metadata.id) });
+
+const vectorRetriever = vectorStore.asRetriever({ k: 3 });
+
+const bm25retriever = BM25Retriever.fromDocuments(documents, { k: 3 });
+
+const hybridRetriever = new EnsembleRetriever({
+    retrievers: [vectorRetriever, bm25retriever],
+    weights: [0.7, 0.3], // 70% vector, 30% BM25/keyword
+});
+
+const test_query = "purchase cost 7.5 billion";
+
+const retrieved_chunks = await hybridRetriever.invoke(test_query);
+
+console.log("Retrieved Chunks:", retrieved_chunks);
+```
+Output:
+```
+Retrieved Chunks: [
+  Document {
+    pageContent: 'Microsoft acquired GitHub for 7.5 billion dollars in 2018.',
+    metadata: { id: '1' },
+    id: '1'
+  },
+  Document {
+    pageContent: 'The tech giant acquired the code repository platform for software development.',
+    metadata: { id: '6' },
+    id: '6'
+  },
+  Document {
+    pageContent: 'Cybertruck reservations exceeded company expectations.',
+    metadata: { id: '9' },
+    id: '9'
+  },
+  {
+    pageContent: 'Tesla Cybertruck production ramp begins in 2024.',
+    metadata: { id: '2' }
+  },
+  {
+    pageContent: 'Google is a large technology company with global operations.',
+    metadata: { id: '3' }
+  }
+]
 ```
 
 
