@@ -134,3 +134,52 @@ const rerankedDocs = await reranker.compressDocuments(retrieved_chunks, test_que
 
 console.log("Reranked Results:");
 console.log(rerankedDocs);
+
+
+// output:
+/*
+Retrieved Chunks:
+[
+  Document {
+    pageContent: 'Tesla reported strong free cash flow generation of $7.5 billion.',
+    metadata: { id: '9' },
+    id: '9'
+  },
+  Document {
+    pageContent: "NVIDIA's data center revenue reached $47.5 billion annually.",
+    metadata: { id: '21' },
+    id: '21'
+  },
+  Document {
+    pageContent: 'Microsoft acquired Activision Blizzard for $68.7 billion.',
+    metadata: { id: '16' },
+    id: '16'
+  },
+  {
+    pageContent: 'Microsoft acquired GitHub for $7.5 billion in 2018.',
+    metadata: { id: '11' }
+  }
+]
+Reranked Results:
+[
+  {
+    pageContent: 'Microsoft acquired GitHub for $7.5 billion in 2018.',
+    metadata: { id: '11', relevanceScore: 0.9530133 }
+  },
+  Document {
+    pageContent: 'Tesla reported strong free cash flow generation of $7.5 billion.',
+    metadata: { id: '9', relevanceScore: 0.0849471 },
+    id: '9'
+  },
+  Document {
+    pageContent: 'Microsoft acquired Activision Blizzard for $68.7 billion.',
+    metadata: { id: '16', relevanceScore: 0.03803509 },
+    id: '16'
+  },
+  Document {
+    pageContent: "NVIDIA's data center revenue reached $47.5 billion annually.",
+    metadata: { id: '21', relevanceScore: 0.00003194182 },
+    id: '21'
+  }
+]
+*/

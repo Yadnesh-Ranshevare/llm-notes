@@ -9,7 +9,7 @@
 8. [Multi-query RAG](#multi-query-rag)
 9. [Reciprocal Rank Fusion (RRF)](#reciprocal-rank-fusion-rrf)
 10. [Hybrid Search](#hybrid-search)
-11. Reranking 
+11. [Reranking](#reranking) 
 
 > all the code snippets are available at [Langchain](../Langchain/src/) folder
 
