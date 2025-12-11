@@ -9,6 +9,7 @@
 8. [Multi-query RAG](#multi-query-rag)
 9. [Reciprocal Rank Fusion (RRF)](#reciprocal-rank-fusion-rrf)
 10. [Hybrid Search](#hybrid-search)
+11. Reranking 
 
 > all the code snippets are available at [Langchain](../Langchain/src/) folder
 
@@ -1480,6 +1481,63 @@ Retrieved Chunks: [
   }
 ]
 ```
+
+
+[Go To Top](#content)
+
+---
+# Reranking
+In a RAG (Retrieval-Augmented Generation) pipeline, reranking is the step where you take the documents retrieved in the first pass and reorder them based on how useful or relevant they actually are to the user’s query.
+
+Think of the first retrieval step as grabbing the top 20–50 potentially relevant documents fast.\
+Reranking then looks at those candidates more carefully (often using a stronger model) and sorts them so the best ones rise to the top before being sent to the generator (LLM).
+
+### Example
+You ask an AI system:\
+“How do I implement JWT authentication in a MERN app?”
+1. Retriever step:\
+It pulls 30 chunks from your knowledge base — some about JWT, some about Express, some about MongoDB schemas, some completely off-topic.
+
+2. Reranker step:\
+A more precise model compares each chunk directly with your question and ranks them:
+
+### Reranker
+A reranker is the model used in a RAG system to re-evaluate and reorder the documents retrieved in the first pass so the most relevant ones end up at the top.
+
+### Simple illustration
+Imagine you're building a search feature inside a Next.js + MERN knowledge base app:
+1. Your retriever (like a vector search) brings back 20 chunks.
+2. Your reranker model takes each chunk and the user’s query and gives a relevance score based on deeper semantic matching.
+3. It sorts the chunks by this score.
+4. Only the best 3–5 go to the LLM.
+
+### Type of reranker
+1. Cross-encoder models (e.g., BERT-based):\
+They look at both the query and document together to judge relevance more precisely.
+2. LLM-based reranker (e.g., small specialized models from Cohere or OpenAI):\
+More expensive but often more accurate.
+
+### Code
+install dependencies
+```bash
+npm i @langchain/cohere
+```
+set up reranker
+```js
+import { CohereRerank } from "@langchain/cohere";
+
+const reranker = new CohereRerank({
+  model: "rerank-english-v3.0",
+  topN: 10,
+  apiKey: process.env.COHERE_KEY
+});
+```
+call the reranker with retrieved document
+```js
+const rerankedDocs = await reranker.compressDocuments(retrieved_chunks, test_query);
+```
+### Complete code
+[click here](../Langchain/src/Rerakning.js) to check out the complete code
 
 
 [Go To Top](#content)
