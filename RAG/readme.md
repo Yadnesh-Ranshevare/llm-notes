@@ -3,13 +3,12 @@
 2. [hallucination](#hallucination)
 3. [Why RAG Exists](#why-rag-exists)
 4. [How Traditional RAG works](#how-traditional-rag-works)
-5. [Langchain](../Langchain/Readme.md)
-6. [Unstructured Chunking](#unstructured-chunking)
-7. [How to Preserve the History?](#how-to-preserve-the-history)
-8. [Multi-query RAG](#multi-query-rag)
-9. [Reciprocal Rank Fusion (RRF)](#reciprocal-rank-fusion-rrf)
-10. [Hybrid Search](#hybrid-search)
-11. [Reranking](#reranking) 
+5. [Unstructured Chunking](#unstructured-chunking)
+6. [How to Preserve the History?](#how-to-preserve-the-history)
+7. [Multi-query RAG](#multi-query-rag)
+8. [Reciprocal Rank Fusion (RRF)](#reciprocal-rank-fusion-rrf)
+9. [Hybrid Search](#hybrid-search)
+10. [Reranking](#reranking) 
 
 > all the code snippets are available at [Langchain](../Langchain/src/) folder
 
@@ -140,7 +139,7 @@ But These raw data can’t be used directly, Therefor we perform parsing and emb
 - embedding: converting those chunks into vectors
 - now this vector can be stored inside the vector db
 
-
+[Check out the code](../Langchain/src/Pipeline/Injection.js)
 
 ### Retrieval Pipeline
 A data retrieval pipeline is the part of a RAG system responsible for finding the right information from a large collection of documents before the LLM answers your question.
@@ -153,6 +152,8 @@ Without this pipeline, the LLM would have nothing to retrieve, and it would rely
 - this vector is used to to retrieve the relevant information form vector db
 - this retrieved info is what we called context 
 - now this context along with a prompt is given to LLM to generate the response
+
+[Check out the code](../Langchain/src/Pipeline/Retrival.js)
 
 ### Vector db:
 A vector database is a special type of database designed to store and search vectors—numerical representations of text, images, audio, or any data that describes meaning or similarity.
