@@ -10,7 +10,7 @@
 9. [Reciprocal Rank Fusion (RRF)](#reciprocal-rank-fusion-rrf)
 10. [Hybrid Search](#hybrid-search)
 
-> all the code snippets are available at [Langchain](../Langchain/) folder
+> all the code snippets are available at [Langchain](../Langchain/src/) folder
 
 ----
 
