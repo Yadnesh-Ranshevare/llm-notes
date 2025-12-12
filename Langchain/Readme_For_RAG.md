@@ -881,6 +881,8 @@ const llm = new ChatGoogleGenerativeAI({
 
 ---
 # Messages
+> messages only work with chat models
+
 Messages are the fundamental unit of context for models in LangChain. 
 
 They represent the input and output of models, carrying both the content and metadata needed to represent the state of a conversation when interacting with an LLM.

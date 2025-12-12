@@ -13,8 +13,19 @@ const pdfPath = "src/Documentloaders/docs/pdfLoder.pdf";
 const loader = new PDFLoader(pdfPath);
 const docs = await loader.load();
 
-const docVectors = await embeddings.embedDocuments([docs[0].pageContent]);
-console.log("First document embedding:", docVectors);
+const pdfVectors = await embeddings.embedDocuments([docs[0].pageContent]);
+console.log("document embedding:", pdfVectors);
+
+
+
+const documents = [
+    "LangChain is a framework for developing applications powered by language models.",
+    "It enables developers to build robust and scalable LLM applications with ease.",
+    "LangChain uses a combination of Python and OpenAI's API to power its features, making it a versatile tool for building LLM applications."
+]
+
+const docVectors = await embeddings.embedDocuments(documents);
+console.log("document embedding:", docVectors);
 
 
 
