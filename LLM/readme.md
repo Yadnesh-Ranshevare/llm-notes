@@ -6,7 +6,7 @@
 5. [Vector Embeddings](#vector-embeddings)
 6. [Positional encoding](#positional-encoding)
 7. [Self Attention](#self-attention)
-8. [How to inspect this vector representation of word](#how-to-inspect-this-vector-representation-of-word)
+8. [How to inspect vector representation of word](#how-to-inspect-this-vector-representation-of-word)
 9. [How LLM generate Response](#how-llm-generate-response)
 10. [Context Window](#context-window)
 11. [Token Cost and Token Limits](#token-cost-and-token-limits)
