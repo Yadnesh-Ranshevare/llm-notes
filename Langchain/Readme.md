@@ -6,6 +6,8 @@
     - [Chat Prompt Template](#chat-prompt-templates)
     - [Message Placeholder](#message-placeholder)
 4. [Structured Output](#structured-output)
+    - [withStructuredOutput()](#withstructuredoutput)
+    - [Output Parsers](#output-parsers)
 
 
 ---
@@ -597,6 +599,252 @@ Structured → DB
 }
 ```
 Direct insert, no transformation.
+
+### How to get structured output?
+There are two ways to get the structured output from out language models
+1. [`withStructuredOutput()`](#withstructuredoutput): works only when your model can return structured output
+2. [`output parser`](#output-parsers): woks with both type of model, i.e, one who produce structured output and one who doesn't 
+
+## withStructuredOutput()
+1. describe your schema using zod
+```js
+import z from "zod";
+
+const ActivitySchema = z.object({   // schema for each activity
+  time: z.enum(["Morning", "Afternoon", "Evening"]),
+  activity: z.string(),
+});
+
+const StructuredOutputSchema = z.array(ActivitySchema); // array of activities
+```
+2. create the unstructured model first
+```js
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import "dotenv/config";
+
+const unstructuredModel = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+```
+3. now use `.withStructuredOutput()` to get the structured model from unstructured one
+```js
+const structuredModel = unstructuredModel.withStructuredOutput(StructuredOutputSchema); // pass your schema
+```
+4. use this model to get the structured output
+```js
+const query = "Can you create a one-day travel arrangements for paris"
+
+const response = await structuredModel.invoke(query);
+```
+#### Code:
+```js
+import z from "zod";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import "dotenv/config";
+
+const ActivitySchema = z.object({
+    time: z.enum(["Morning", "Afternoon", "Evening"]),
+    activity: z.string(),
+});
+
+const StructuredOutputSchema = z.array(ActivitySchema);
+
+const unstructuredModel = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const structuredModel = unstructuredModel.withStructuredOutput(StructuredOutputSchema);
+
+const query = "Can you create a one-day travel arrangements for paris";
+
+const response = await structuredModel.invoke(query);
+console.log("Structured Response:", response);
+```
+Output:
+```js
+Structured Response: [
+  {
+    time: 'Morning',
+    activity: 'Visit the Eiffel Tower and take a walk along the Seine River.'
+  },
+  {
+    time: 'Afternoon',
+    activity: 'Explore the Louvre Museum and enjoy lunch nearby.'
+  },
+  {
+    time: 'Evening',
+    activity: 'Dine in Montmartre and visit the Sacré-Cœur Basilica for sunset views.'
+  }
+]
+```
+## Output parsers
+output parsers in langchain helps convert raw LLM response into structured format like JSON, csv, etc. 
+
+They ensure consistency, validation, and ease of use in application 
+
+There are multiple output parser in langchain like:
+1. [string output parser](#1-string-output-parser)
+2. [JSON output parser](#2-json-output-parser)
+3. [structured output parser](#3-structured-output-parser)\
+etc...
+
+### 1. string output parser
+it is used to parse the language model response and return it in plain text format
+```js
+import { StringOutputParser } from "@langchain/core/output_parsers";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import "dotenv/config";
+
+const parser = new StringOutputParser();
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const response = await llm.invoke("Say hello");
+
+const output = await parser.invoke(response);
+
+console.log("Raw Response:", response);
+console.log("pars Output:", output);
+```
+output:
+```
+Raw Response: AIMessage {
+  "content": "Hello!",
+  "additional_kwargs": {
+    "finishReason": "STOP",
+    "index": 0,
+    "__gemini_function_call_thought_signatures__": {}
+  },
+  "response_metadata": {
+    "tokenUsage": {
+      "promptTokens": 3,
+      "completionTokens": 2,
+      "totalTokens": 23
+    },
+    "finishReason": "STOP",
+    "index": 0
+  },
+  "tool_calls": [],
+  "invalid_tool_calls": [],
+  "usage_metadata": {
+    "input_tokens": 3,
+    "output_tokens": 2,
+    "total_tokens": 23
+  }
+}
+pars Output: Hello!
+```
+> actually we get the response in `response.content` block 
+
+why to use string output parsers?
+
+- `response.content` is model-specific\
+`StringOutputParser` gives you a clean, consistent string interface
+- helps in constructing easy chains
+```
+Prompt → LLM → OutputParser → string output → LLM → OutputParser → final output string
+```
+> A chain is just a pipeline where the output of one step becomes the input of the next step
+
+### 2. JSON output parser
+`JsonOutputParser` converts the LLM’s text output into a JavaScript object by parsing JSON.
+
+in `JsonOutputParser` we send an additional instruction along with our prompt which tell model to send data in JSON format
+
+with `JsonOutputParser` we cannot enforce the structure of our output it will be decided by LLM itself
+
+```js
+import { JsonOutputParser } from "@langchain/core/output_parsers";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import "dotenv/config";
+
+const parser = new JsonOutputParser();
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const prompt = "give me the list of three programming languages \nin json format";
+
+const response = await llm.invoke(prompt);
+
+const output = await parser.invoke(response.content);
+
+console.log("Parsed Output:", output);
+```
+output:
+```js
+Parsed Output: [ 'Python', 'JavaScript', 'Java' ]
+```
+### 3. Structured Output Parser
+A Structured Output Parser forces the LLM to return data in a specific structure and then validates it.
+
+Here also we send an additional instruction along with our prompt which tell model to send data in structured format
+
+we get that instruction from `.getFormatInstructions()`
+
+to use `StructuredOutputParser` first we need to define our schema
+```js
+import z from "zod";
+
+// array of objects
+const schema = z.array(
+    z.object({
+        id: z.number(),
+        name: z.string(),
+    })
+);
+```
+then we use `StructuredOutputParser.fromZodSchema()` to construct our parser
+```js
+const parser = StructuredOutputParser.fromZodSchema(schema);
+```
+> use `parser.getFormatInstructions()` to get that additional prompt information
+
+#### Code
+
+```js
+import z from "zod";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { StructuredOutputParser } from "@langchain/core/output_parsers";
+import "dotenv/config";
+
+const schema = z.array(
+    z.object({
+        id: z.number(),
+        name: z.string(),
+    })
+);
+
+const parser = StructuredOutputParser.fromZodSchema(schema);
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const prompt = `give me the list of three programming languages \n${parser.getFormatInstructions()}`;
+
+const response = await llm.invoke(prompt);
+
+const output = await parser.invoke(response.content);
+
+console.log("Parsed Output:", output);
+```
+output:
+```js
+Parsed Output: [
+  { id: 1, name: 'Python' },
+  { id: 2, name: 'JavaScript' },
+  { id: 3, name: 'Java' }
+]
+```
 
 [Go To Top](#content)
 
