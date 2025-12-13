@@ -1,6 +1,11 @@
 # Content:
 1. [Models](#models)
 2. [Open Source Models](#open-source-models)
+3. [Prompts](#prompts)
+    - [prompt Template](#prompts-template)
+    - [Chat Prompt Template](#chat-prompt-templates)
+    - [Message Placeholder](#message-placeholder)
+4. [Structured Output](#structured-output)
 
 
 ---
@@ -265,6 +270,333 @@ Why it’s used: Easy downloads, good docs, community support, hosting options.
 
 > for more info visit https://huggingface.co/
 
+
+[Go To Top](#content)
+
+---
+# Prompts
+prompts are the given instructions or queries to a model to guide its output
+
+### Example
+```js
+const prompt = "Explain LangChain in one line."     // this is a prompt
+const response = await llm.invoke(prompt);
+```
+
+### Type of prompts
+1. text based prompts: prompts that are in text format
+2. multimodeal prompts: giving something other than text as a prompt like image, sound, video, etc. 
+
+### Static Prompts vs Dynamic Prompts
+
+#### 1. Static Prompts
+A static prompt is a fixed, unchanging instruction.
+You write it once, and it stays the same every time the model is used.
+
+No matter who uses it or what time it is, the wording remains the same.
+
+Example:
+```js
+const prompt = "Explain LangChain in one line."     // this prompt is fixed
+const response = await llm.invoke(prompt);
+```
+#### 2. Dynamic Prompts
+A dynamic prompt changes based on context, variables, or user input.
+You generate part of the prompt on the fly.
+
+Example:
+
+```js
+const prompt = userInput;
+model.generate(prompt);
+```
+If the user types:
+- “Explain binary search” → prompt becomes that
+- “Debug this JavaScript code” → prompt becomes that
+- “Write MongoDB schema” → prompt becomes that
+
+The prompt is not fixed, so it’s dynamic.
+
+### Prompts template
+A prompt template is a pre-structured prompt that contains fixed text (static parts) plus placeholders (dynamic parts) that get filled with user input or data at runtime.
+
+Think of it like template literals in JavaScript:
+```js
+const prompt = `Hello ${name}, your score is ${score}`
+```
+The structure is fixed, but certain values change → same idea in AI prompting.
+
+#### LangChain Example
+1. Create a Prompt Template
+```js
+import { PromptTemplate } from "@langchain/core/prompts";
+
+const prompt = new PromptTemplate({
+    template: `You are a helpful assistant.
+        Explain the following {language} code:
+        {code}`,
+    inputVariables: ["language", "code"],
+});
+```
+2. Fill it with user data
+```js
+const finalPrompt = await prompt.format({
+    // make sure to use same name as inputVariables
+    language: "JavaScript",
+    code: "function sum(a,b){ return a+b; }"
+});
+```
+finalPrompt becomes:
+```
+You are a helpful assistant.
+Explain the following JavaScript code:
+function sum(a,b){ return a+b; }
+```
+
+### Why use LangChain Prompt Templates instead of JS string literals?
+Using normal JavaScript template strings works for very small, one-off prompts.
+But when you start building real AI features (chatbots, agents, RAG apps, coding tools), JS strings quickly become messy.
+
+LangChain prompt templates solve several problems.
+
+#### 1. Automatic Variable Injection & Validation
+JS template literal:
+```js
+`Explain this ${language} code: ${code}`
+``` 
+If you forget to pass `language`, JS will silently insert `undefined` → model gets garbage
+
+LangChain template:
+```js
+new PromptTemplate({
+  template: "Explain this {language} code: {code}",
+  inputVariables: ["language", "code"]
+});
+```
+If you forget to pass a variable → LangChain throws an error immediately.\
+This prevents broken prompts going to your model.
+
+#### 2. Templates Become Reusable Components
+With LangChain, a template becomes a reusable object.
+
+You can reuse the same template:
+- across multiple routes
+- with multiple models
+- inside tools
+- in complex chains
+
+JS string literals are not reusable components; they're just text.
+
+#### 3. Works Natively With Chains, Retrievers, Memory, Tools
+In LangChain, templates plug directly into:
+- LLMChain
+- RunnableSequence
+- Agents
+- Tools
+- Output parsers
+- RAG pipelines
+
+JS strings do not integrate with this system.
+
+
+### Chat Prompt Templates
+whenever you want to pass the list of prompts as a input to a model use can use [message object](Readme_For_RAG.md/#messages)
+
+This list will act as a message history for response generation
+```js
+import { SystemMessage, HumanMessage, AIMessage } from "langchain";
+
+const messages = [
+  new SystemMessage("You are a poetry expert"),
+  new HumanMessage("Write a haiku about spring"),
+  new AIMessage("Cherry blossoms bloom..."),
+];
+const response = await model.invoke(messages);
+```
+
+#### problem with message object
+1. **They are not reusable:**
+
+    You must recreate them every time.
+    ```js
+    messages = [
+        SystemMessage(content="You are a Java tutor"),
+        HumanMessage(content="Explain JVM")
+    ]
+    ```
+    If tomorrow the role changes to Python tutor, you rewrite everything.
+
+2. **Hard to make dynamic:**
+
+    If your input changes, message objects become messy.
+    ```js
+    topic = "Promises"
+
+    messages = [
+        SystemMessage(content="You are a JavaScript tutor"),
+        HumanMessage(content=f"Explain {topic}")
+    ]
+    ```
+    > message object are use fot static prompt list
+
+#### Chat Prompt Template solve this issue
+ChatPromptTemplate is a structured way to build a list of chat messages dynamically instead of manually creating `SystemMessage`, `HumanMessage`, etc.
+
+Example:
+```js
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+
+const chat_template = ChatPromptTemplate.fromMessages([
+    ["system", "You are a React tutor."],
+    ["human", "{question}"],
+]);
+
+const messages = await chat_template.format({
+  question: "What is useState?"
+});
+
+console.log(messages);
+```
+Output:
+```
+System: You are a React tutor.
+Human: What is useState?
+```
+
+### Message Placeholder
+message placeholder is a special placeholder used inside a `ChatPromptTemplate` to dynamically insert the chat history or list of message at runtime
+
+```js
+import { MessagesPlaceholder, ChatPromptTemplate } from "@langchain/core/prompts";
+
+const chatHistory = [
+    {
+        type: "human",
+        content: "What is vector search?",
+    },
+    {
+        type: "ai",
+        content: "Vector search is a technique used to find similar items based on their vector representations.",
+    },
+];
+
+const chatPrompt = ChatPromptTemplate.fromMessages([
+    ["system", "You are a coding tutor."], 
+    new MessagesPlaceholder("history"), 
+    ["human", "{input}"]
+]);
+
+const result = await chatPrompt.format({
+    history: chatHistory, // Pass chat history array
+    input: "How does vector search work?",
+});
+console.log(result);
+```
+output:
+```
+System: You are a coding tutor.
+Human: What is vector search?
+AI: Vector search is a technique used to find similar items based on their vector representations.
+Human: How does vector search work?
+```
+
+[Go To Top](#content)
+
+---
+# Structured Output
+
+Structured output allows language models to return data in a specific, predictable format. Instead of parsing natural language responses, you get typed structured data.
+
+>language models generally returns the response in natural language
+
+### Example
+**Prompt: Can you create a one-day travel arrangements for paris**
+
+unstructured output:
+```
+Here's a suggested travel arrangements:
+Morning: visit the Eiffel Tower
+Afternoon: walks through the Louver Museum
+Evening: Enjoy dinner at a Seine riverside cafe
+```
+
+Structured Output (JSON format):
+```js
+[
+    {
+        "time":"Morning", 
+        "activity":"visit the Eiffel Tower"
+    },
+    {
+        "time":"Afternoon", 
+        "activity":"walks through the Louver Museum"
+    },
+    {
+        "time":"Evening", 
+        "activity":"Enjoy dinner at a Seine riverside cafe"
+    }
+]
+```
+### Why Structured Output is useful?
+Structured output is useful because your code can TRUST the LLM.\
+Without it, LLM responses are unpredictable and fragile.
+
+#### 1. Makes LLM output machine-safe
+Without structure:
+- Parsing text becomes hard
+- Edge cases are unpredictable
+- Random wording makes it difficult to handle
+```
+The user seems to be an admin and probably can access the dashboard.
+```
+Now what?
+- Is admin true or false?
+- What if wording changes?
+- Regex breaks 
+
+With structure:
+- Fixed keys
+- Known types
+- Zero guessing
+```js
+{
+  "role": "admin",
+  "canAccessDashboard": true
+}
+```
+Your code can now do:
+```js
+if (user.canAccessDashboard) showDashboard();
+```
+#### 2. Required for Agents & Tools
+Agents must decide things like:
+- Which tool to call
+- What arguments to pass
+
+Example:
+```js
+{
+  "tool": "getWeather",
+  "args": {
+    "city": "Mumbai"
+  }
+}
+```
+Agents cannot work reliably without structured output.
+
+#### 3. Perfect for database operations
+Free text → DB (dangerous)
+```
+User is 22 years old and likes JS
+```
+Structured → DB
+```js
+{
+  "age": 22,
+  "skills": ["JS"]
+}
+```
+Direct insert, no transformation.
 
 [Go To Top](#content)
 
