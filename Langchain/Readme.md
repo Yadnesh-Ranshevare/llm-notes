@@ -8,6 +8,7 @@
 4. [Structured Output](#structured-output)
     - [withStructuredOutput()](#withstructuredoutput)
     - [Output Parsers](#output-parsers)
+5. [Chains](#chains)
 
 
 ---
@@ -845,6 +846,251 @@ Parsed Output: [
   { id: 3, name: 'Java' }
 ]
 ```
+
+[Go To Top](#content)
+
+---
+# Chains
+In LangChain, a chain is simply a way to connect multiple steps together so they run one after another to complete a task.
+
+Think of it like a pipeline:\
+Input → Processing → Output
+
+in chain output of first step is given as input to next step until we get the output
+
+in langchain `.pipe()` is LangChain's method for chaining
+
+### Example of Basic chaining
+```js
+import "dotenv/config";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { PromptTemplate } from "@langchain/core/prompts";
+import { StringOutputParser } from "@langchain/core/output_parsers";
+
+const prompt = new PromptTemplate({
+    template: "Explain {topic} in simple 2 sentences.",
+    inputVariables: ["topic"],
+});
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const parser = new StringOutputParser();
+
+const chain = prompt.pipe(llm).pipe(parser)
+
+const result = await chain.invoke({ topic: "REST API" });
+console.log(result);
+```
+output:
+```
+A REST API is a set of rules allowing different software applications to communicate with each other over the internet. It uses common web requests (like GET, POST) to retrieve or send data to specific pieces of information, called resources.
+```
+
+### Parallel Chain
+parallel chains mean running multiple chains (or steps) at the same time on the same input, instead of one after another.
+
+we use `RunnableParallel.from()` to execute the chain in parallel
+
+#### Example:
+let say we have a text article which we want to summarize into points and generate 2 questions from it and we want our final data into a single document
+
+in sequential chains we can only perform one task at a time i.e, first generate point vise summary then generate questions and finally combine both
+
+```
+data -> generate summary -> generate question -> combine -> output
+```
+
+but in parallel chains we can generate summary and question at the same time using parallel chain
+```
+        ┌─> generate summary  ─┐          
+data ───|                      |─────> combine -> output
+        └─> generate question ─┘          
+```
+
+1. initiate parser and llm's
+```js
+import "dotenv/config";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { StringOutputParser } from "@langchain/core/output_parsers";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const parser = new StringOutputParser();
+```
+2. chain 1: generate point vise summary
+```js
+import { PromptTemplate } from "@langchain/core/prompts";
+
+const prompt1 = new PromptTemplate({
+    template: "create a point wise summary of the following text:\n\n{input}",
+    inputVariables: ["input"],
+});
+
+const chain1 = prompt1.pipe(llm).pipe(parser)
+```
+3. chan 2: generate two questions
+```js
+import { PromptTemplate } from "@langchain/core/prompts";
+
+const prompt2 = new PromptTemplate({
+    template: "generate 2 questions from the following topic:\n\n{input}",
+    inputVariables: ["input"],
+});
+
+const chain2 = prompt2.pipe(llm).pipe(parser)
+```
+4. run both chain 1 and chain 2 in parallel
+```js
+import { RunnableParallel } from "@langchain/core/runnables";
+
+const parallelChian = RunnableParallel.from({
+    summary: chain1,
+    questions:chain2
+})
+```
+when you execute this parallel chain the output you get is as follow:
+```
+{
+  questions: 'Here are two questions generated from the provided topic:\n' +
+    '\n' +
+    '1.  According to the text, what are some key abilities that Artificial Intelligence allows computers to do?\n' +
+    '2.  What is the main goal of AI, as described in the passage?',
+  summary: "Here's a point-wise summary of the text:\n" +
+    '\n' +
+    '*   AI is a technology that allows computers to think and learn like humans.\n' +
+    '*   It can understand language, recognize images, and make decisions based on data.\n' +
+    '*   Examples include voice assistants (Siri, Alexa), Netflix recommendation systems, and chatbots.\n' +
+    '*   AI is used in many fields, such as healthcare, education, banking, and transportation.\n' +
+    '*   The main goal of AI is to make machines smarter to help humans work faster and better.'
+}
+```
+4. chain 3: combine the output of parallel chain
+```js
+import { PromptTemplate } from "@langchain/core/prompts";
+
+const prompt3 = new PromptTemplate({
+    template: "jest merge the following summary and questions into a single json object with keys 'summary' and 'questions':\n\nSummary:\n{summary}\n\nQuestions:\n{questions}",
+    inputVariables: ["summary", "questions"],   // make sure this name matches with the output of parallel chains
+});
+
+const chain3 = prompt3.pipe(llm).pipe(parser)  
+```
+5. combine `parallelChian` with `chain3`
+```js
+const combinedChain = parallelChian.pipe(chain3);   // output of parallel chain will pass into chain three
+```
+5. invoke the combine chain:
+```js
+const data = `Artificial Intelligence, or AI, is a technology that allows computers to think and learn like humans.
+AI can understand language, recognize images, and make decisions based on data.
+Examples of AI include voice assistants like Siri and Alexa, recommendation systems on Netflix, and chatbots.
+AI is used in many fields such as healthcare, education, banking, and transportation.
+The main goal of AI is to make machines smarter so they can help humans work faster and better.`
+
+const result = await combinedChain.invoke({ input: data });
+```
+#### Code
+[click here](../Langchain/src/Chain/parallel.js) to visit the complete code
+
+
+### Conditional Chains
+In LangChain, a conditional chain means controlling which chain (or step) runs based on some condition 
+
+#### Example:
+lets take a user review and classify it as positive or negative
+- if positive -> send a positive message to user like thank you!
+- if negative -> send a proper response to help user
+
+to implement this conditional chaining we use `RunnableBranch`
+> `RunnableBranch` is LangChain’s clean, low-level way to do `if–else` logic for chains.
+
+**syntax of `RunnableBranch`**
+```js
+const branch_chain = RunnableBranch.from([
+    [condition1, chain1],
+    [condition2, chian2],
+    .
+    .
+    .
+    defaultChian
+])
+```
+
+1. classifier chain
+```js
+import { StructuredOutputParser } from "@langchain/core/output_parsers";
+import { PromptTemplate } from "@langchain/core/prompts";
+import { z } from "zod";
+
+const schema = z.enum(["positive", "negative"]);
+
+const json_parser = StructuredOutputParser.fromZodSchema(schema);
+
+const prompt1 = new PromptTemplate({
+    template: "classify the sentiment of the following review as positive, negative\n\n{review}\n\n{pares}",
+    inputVariables: ["review"],
+    partialVariables: { pares: json_parser.getFormatInstructions() },
+});
+
+const classifierChain = prompt1.pipe(llm).pipe(json_parser);
+```
+2. positive response chain
+```js
+import { PromptTemplate } from "@langchain/core/prompts";
+
+const prompt2 = new PromptTemplate({
+    template: "tell one positive response to the user following sentiment:\n\n{sentiment}",
+    inputVariables: ["sentiment"],  // make sure this name matches with the input object i.e, input = {sentiment = ...}
+});
+
+const positiveChain = prompt2.pipe(llm).pipe(new StringOutputParser());
+```
+2. negative response chain
+```js
+import { PromptTemplate } from "@langchain/core/prompts";
+
+const prompt3 = new PromptTemplate({
+    template: "tell one negative response to the user the following sentiment:\n\n{sentiment}",
+    inputVariables: ["sentiment"],  // make sure this name matches with the input object i.e, input = {sentiment = ...}
+});
+
+const negativeChain = prompt3.pipe(llm).pipe(new StringOutputParser());
+```
+4. conditional branching/chaining:
+```js
+const generalChain = new PromptTemplate({
+    template: "tell user to fill proper feedback in 1 to 2 sentences.",
+    inputVariables: [],
+}).pipe(llm).pipe(new StringOutputParser());
+
+const branch_chain = RunnableBranch.from([
+  [
+    (input) => input.sentiment === "positive",
+    positiveChain,  // in this chain we are passing input as {sentiment = "positive"}
+  ],
+  [
+    (input) => input.sentiment === "negative",
+    negativeChain, // in this chain we are passing input as {sentiment = "negative"}
+  ],
+  generalChain,
+]);
+```
+5. add this `branch_chain` to  `classifierChain`
+```js
+const combine_chain = classifierChain.pipe(branch_chain);
+```
+> as `classifierChain` returns `{sentiment = ...}` this object will be the input for `branch_chain`
+
+### Complete code
+[click here](../Langchain/src/Chain/conditional.js) to visit the complete code
+
+
 
 [Go To Top](#content)
 
