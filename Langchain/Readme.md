@@ -9,7 +9,7 @@
     - [withStructuredOutput()](#withstructuredoutput)
     - [Output Parsers](#output-parsers)
 5. [Chains](#chains)
-
+6. [Runnable](#runnable)
 
 ---
 # Models
@@ -1089,6 +1089,173 @@ const combine_chain = classifierChain.pipe(branch_chain);
 
 ### Complete code
 [click here](../Langchain/src/Chain/conditional.js) to visit the complete code
+
+
+
+[Go To Top](#content)
+
+---
+# Runnable
+In LangChain, a Runnable is a standardized, composable unit of work that can be executed, chained, and reused in pipelines.
+
+Before Runnables, LangChain components (LLMs, prompts, chains, tools) were harder to combine flexibly.
+
+Runnables unify everything so that:
+- Prompts
+- LLMs
+- Output parsers
+
+all behave the same way and can be chained together cleanly.
+
+### Traditional chains
+Before Runnables, LangChain used Chains as the main way to connect components.
+
+A Chain was a predefined workflow class that:
+- Took some inputs
+- Called one or more components internally
+- Returned outputs
+
+You didn’t control each step directly — the chain decided the flow.
+
+#### Example: `LLMChain`
+```js
+import { LLMChain } from "langchain/chains";
+```
+Used for:
+```
+Prompt → LLM → Output
+```
+You cannot easily inject logic in between
+
+### Problem with traditional LangChain Chains
+The problem with traditional LangChain Chains (before Runnables) is not that they didn’t work, but that they were too rigid and inconsistent for real-world apps.
+
+#### Problem 1: Rigid, predefined structure
+Traditional chains had fixed internal logic.
+
+Example: `LLMChain`
+```
+Prompt → LLM → Output
+```
+You couldn’t easily change this order or insert steps.
+>Anything extra meant writing a custom Chain class.
+
+#### Problem 2: increasing number of chains
+As apps grew, developers kept creating new Chain classes for every variation:
+- `LLMChain`
+- `ConversationalChain`
+- `RetrievalQAChain`
+- `VectorDBQAChain`\
+etc...
+
+Each solved one specific workflow.
+
+> The number of chains grew combinatorially.
+
+
+### Why traditional langchain component where hard to combine?
+
+Earlier LangChain had separate abstractions:
+- PromptTemplate
+- LLM / ChatModel
+- OutputParser
+
+Each had different APIs and expectations.
+
+
+#### Problem: No common interface
+Before Runnables:
+```js
+prompt.format()      // returns string
+llm.call()           // returns object
+parser.parse()       // expects string
+```
+>Different method names, different input/output types.
+
+You had to manually glue things together.
+```js
+const text = prompt.format(input);
+const response = await llm.call(text);
+const result = parser.parse(response.text);
+```
+- Boilerplate
+- Easy to break
+- Hard to reuse
+
+### How Runnables fixed it (the key idea)?
+Runnables introduced ONE universal interface:
+```
+(input) → output
+```
+With standard methods:
+- `.invoke()`
+- `.batch()`
+- `.stream()`
+- `.pipe()`
+
+Now everything behaves the same.
+#### Problem solved: common interface
+Before Runnables:
+```js
+prompt.invoke()         // returns object
+llm.invoke()            // returns object
+parser.invoke()         // returns object
+```
+>Same method names, same input/output types.
+now we can combine them easily
+```js
+const chain = prompt
+  .pipe(model)
+  .pipe(parser);
+
+const final = await chain.invoke({ topic });
+```
+- No glue code
+- Clear data flow
+- Easy to extend
+
+### How plain JS code becomes a Runnable
+At its core, LangChain says:\
+If something can behave like `async (input) → output`, it can be a Runnable.
+
+So plain JS functions already match this shape.
+```js
+(input) => output
+```
+LangChain just wraps them with a standard interface.
+
+#### The wrapper: `RunnableLambda`
+Plain JS function
+```js
+const addPrefix = (text) => `Topic: ${text}`;
+```
+Turn it into a Runnable
+```js
+import { RunnableLambda } from "@langchain/core/runnables";
+
+const addPrefixRunnable = new RunnableLambda({
+  func: addPrefix,
+});
+
+await addPrefixRunnable.invoke("LangChain");
+// Topic: LangChain
+```
+#### Why wrapping is needed
+Plain JS functions:
+- Don’t know about .pipe()
+- Can’t stream
+- Can’t batch automatically
+
+The wrapper adds those capabilities.
+
+#### Automatic conversion
+LangChain auto-wraps functions for you.
+```js
+const chain = prompt
+  .pipe(model)
+  .pipe((output) => output.content.toUpperCase());
+```
+That last function is automatically converted into a `RunnableLambda`.
 
 
 
