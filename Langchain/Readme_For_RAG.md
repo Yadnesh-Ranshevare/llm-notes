@@ -9,7 +9,7 @@
 8. [Integrating with Gemini](#integrating-with-gemini)
 9. [Messages](#messages)
 
-> for this tutorial wi'll be using Gemini api key (free api key)
+> for this tutorial we'll be using Gemini api key (free api key)
 ---
 
 # Introduction
