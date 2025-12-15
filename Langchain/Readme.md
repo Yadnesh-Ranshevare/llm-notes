@@ -10,6 +10,12 @@
     - [Output Parsers](#output-parsers)
 5. [Chains](#chains)
 6. [Runnable](#runnable)
+    - [RunnableLambda](#runnablelambda)
+    - [RunnableSequence](#runnablesequence)
+    - [RunnableParallel](#runnableparallel)
+    - [RunnableMap](#runnablemap)
+    - [RunnableBranch](#runnablebranch)
+    - [RunnablePassthrough](#runnablepassthrough)
 
 ---
 # Models
@@ -1214,6 +1220,29 @@ const final = await chain.invoke({ topic });
 - Clear data flow
 - Easy to extend
 
+
+### Type of Runnables
+1. **Task specific Runnables:** 
+    - This are the core Langchain component that have been  converted into runnables so they can used in pipelines
+    - example:\
+    `ChatGoogleGenerativeAI` -> call gemini LLM\
+    `PromptTemplate` -> create prompt template\
+    etc...
+2. **Runnable Primitive**
+    - this are the fundamental building block for structuring execution logic in AI workflow
+    - they orchestrate execution by defining how Runnable interact
+    - example:\
+    `RunnableParallel` -> executing runnable in parallel\
+    `RunnableBranch` -> executing runnable conditionally\
+    `RunnableSequence` -> executing runnable in sequence\
+    etc...
+
+
+[Go To Top](#content)
+
+---
+# RunnableLambda
+Purpose: Turn plain JS logic into a runnable
 ### How plain JS code becomes a Runnable
 At its core, LangChain says:\
 If something can behave like `async (input) → output`, it can be a Runnable.
@@ -1258,6 +1287,150 @@ const chain = prompt
 That last function is automatically converted into a `RunnableLambda`.
 
 
+[Go To Top](#content)
+
+---
+# RunnableSequence
+Purpose: Run multiple steps one after another
+### Example:
+```js
+import { RunnableSequence } from "@langchain/core/runnables";
+
+const chain = RunnableSequence.from([
+  (x) => `Topic: ${x}`,     // output of this 
+  (x) => x.toUpperCase(),   // will be given as input here
+]);
+
+await chain.invoke("runnables");
+// TOPIC: RUNNABLES
+```
+### Mental model
+```
+A → B → C
+```
+
+[Go To Top](#content)
+
+---
+# RunnableParallel
+Purpose: Run multiple runnables at the same time
+### Example
+```js
+import { RunnableParallel } from "@langchain/core/runnables";
+
+const parallel = RunnableParallel.from({
+  lower: (x) => x.toLowerCase(),    // both will have same input and will run in parallel
+  upper: (x) => x.toUpperCase(),    // both will have same input and will run in parallel
+});
+
+const result = await parallel.invoke("LangChain");
+console.log(result);
+```
+### Output
+```js
+{
+  lower: "langchain",
+  upper: "LANGCHAIN"
+}
+```
+### Mental model
+```
+     → A →
+Input       → Results
+     → B →
+```
+
+
+[Go To Top](#content)
+
+---
+# RunnableMap
+Purpose: Transform input into a structured object
+### Example
+```js
+import { RunnableMap } from "@langchain/core/runnables";
+
+const map = RunnableMap.from({
+  original: (x) => x + " Langchain",    // both will have same input
+  length: (x) => x.length,              // both will have same input
+});
+
+const result = await map.invoke("AI");
+console.log(result); 
+```
+### Output
+```js
+{
+  original: "AI Langchain",
+  length: 2
+}
+```
+> Similar to RunnableParallel, but focused on shaping output
+
+[Go To Top](#content)
+
+---
+# RunnableBranch
+Purpose: Conditional execution (if/else)
+
+### Syntax
+```js
+const branch_chain = RunnableBranch.from([
+    [condition1, chain1],
+    [condition2, chian2],
+    .
+    .
+    .
+    defaultChian
+])
+```
+### Example
+```js
+import { RunnableBranch } from "@langchain/core/runnables";
+
+const branch = RunnableBranch.from([
+    [(x) => x.length < 5, (x) => "SHORT"],  // fist condition
+    [(x) => x.length >= 5, (x) => "LONG"],  // second condition
+    (x) => "UNKNOWN",                       // default block
+]);
+
+const result = await branch.invoke("Hello");
+console.log(result);
+```
+### Output
+```
+LONG
+```
+### Mental model
+```
+if (condition) → A
+else → B
+```
+
+
+[Go To Top](#content)
+
+---
+# RunnablePassthrough
+Purpose: Pass input forward unchanged (tap/log)
+### Example
+```js
+import { RunnablePassthrough } from "@langchain/core/runnables";
+
+const chain = RunnablePassthrough.assign({
+  length: (x) => x.input.length,
+});
+
+const result = await chain.invoke({input:"LangChain"});
+console.log(result); // Output: { input: 'LangChain', length: 9 }
+```
+### Output
+```js
+{
+  input: "LangChain",
+  length: 9
+}
+```
 
 [Go To Top](#content)
 
