@@ -16,6 +16,8 @@
     - [RunnableMap](#runnablemap)
     - [RunnableBranch](#runnablebranch)
     - [RunnablePassthrough](#runnablepassthrough)
+7. [Tools](#tools)
+
 
 ---
 # Models
@@ -1431,6 +1433,300 @@ console.log(result); // Output: { input: 'LangChain', length: 9 }
   length: 9
 }
 ```
+
+[Go To Top](#content)
+
+---
+# Tools
+A tool is just a javascript function that is packaged in a way the LLM can understands and call when needed
+
+tools are functions or capabilities that an LLM can use to take actions or fetch information, instead of only generating text.
+
+**Without tools** → the model only answers from its training\
+**With tools** → the model can search, calculate, call APIs, query databases, run code, etc.
+
+> Toolkit: A toolkit is just a collection of tools that serve the common purpose 
+>
+> example:\
+> add_Operation_Tool, multiply_Operation_Tool can be combine into a collection called calculatorToolkit
+
+
+### Langchain provide two type of tools
+1. built in tools:\
+Built-in tools are pre-made tools provided by LangChain
+
+2. custom tools:\
+Custom tools are tools YOU create for your own logic or APIs.
+
+> [click here](https://docs.langchain.com/oss/javascript/integrations/tools/index#all-tools-and-toolkits) to check all the available built in tools for js
+>
+>[click here](https://docs.langchain.com/oss/python/integrations/tools/index#search) to check all the available built in  tools for python
+
+### How Tools fits into the Agent ecosystem
+An AI agent is an LLM-powered system that can automatically think, decide, and take action using external tools or API's to achieve a goal
+> Think and decide -> LLM
+> 
+> Take action -> tools
+
+### Example: `WikipediaQueryRun()` built in tool
+```js
+import { WikipediaQueryRun } from "@langchain/community/tools/wikipedia_query_run";
+
+const tool = new WikipediaQueryRun({
+    topKResults: 3,
+    maxDocContentLength: 200,
+});
+
+const res = await tool.invoke("LangChain");
+
+console.log(res);
+```
+output:
+```
+Page: LangChain
+Summary: LangChain is a software framework that helps facilitate the integration of large language models (LLMs) into applications. As a language model integration framework, LangChain
+```
+### Custom Tools using DynamicTool
+> must follow complete tutorial, the code bellow is incomplete to complete it follow to tutorial till the end
+1. define your function
+```js
+function add(a, b) {
+    return a + b;
+}
+```
+2. create a tool using that function
+```js
+import { DynamicTool } from "@langchain/core/tools";
+
+const addTool = new DynamicTool({
+    name: "add_numbers",
+    description: "Adds two numbers together",
+    func: async (input) => {
+        const {a, b} = input
+        return add(a, b);   // call the function here
+    },
+});
+```
+3. invoke the tool
+```js
+await addTool.invoke({ a: 5, b: 10 });      
+```
+Although this is look fine but it will not work as `DynamicTool` only takes the string input
+
+Example:
+```js
+import { DynamicTool } from "@langchain/core/tools";
+
+const addTool = new DynamicTool({
+    name: "add_numbers",
+    description: "Adds two numbers together",
+    func: async (input) => {
+        console.log(input)  // undefined
+    },
+});
+
+await addTool.invoke({ a: 5, b: 10 });
+```
+output:
+```
+undefined
+```
+> As `DynamicTool` takes the string input only 
+
+Therefor to solve this issue we convert the input value into string and convert it back to JSON inside the tool
+```js
+import { DynamicTool } from "@langchain/core/tools";
+
+function add(a, b) {
+    return a + b;
+}
+
+const addTool = new DynamicTool({
+    name: "add_numbers",
+    description: "Adds two numbers together",
+    func: async (input) => {
+        const { a, b } = JSON.parse(input);     // convert it back to json
+        return add(a, b).toString();
+    },
+});
+
+const result = await addTool.invoke(JSON.stringify({ a: 5, b: 10 }));   // convert the input into string
+console.log(result);
+```
+output
+```
+15
+```
+
+### Custom tool using DynamicStructuredTool 
+it is same as `DynamicTool` but unlike `DynamicTool` which accept the string input only `DynamicStructuredTool` can accept the structured input
+1. define your function
+```js
+function add(a, b) {      
+    return a + b;
+}
+```
+2. create a tool using that function
+```js
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+const addTool = new DynamicStructuredTool({
+    name: "add_numbers",
+    description: "Adds two numbers together",
+    schema: z.object({  // define your schema here  
+        a: z.number(),
+        b: z.number(),
+    }),
+    func: async ({ a, b }) => {
+        return add(a, b);   // call the function here
+    },
+});
+```
+3. invoke the tool
+```js
+const result = await addTool.invoke({ a: 5, b: 10 });
+```
+
+#### Complete code
+```js
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+function add(a, b) {
+    return a + b;
+}
+
+const addTool = new DynamicStructuredTool({
+    name: "add_numbers",
+    description: "Adds two numbers together",
+    schema: z.object({
+        a: z.number(),
+        b: z.number(),
+    }),
+    func: async ({ a, b }) => {
+        return add(a, b);
+    },
+});
+
+const result = await addTool.invoke({ a: 5, b: 10 });
+console.log(result);
+```
+output
+```
+15
+```
+### Another syntax
+```js
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+// make sure that function is async function
+async function add({a, b}) {      // make sure to accept the argument as a object 
+    return a + b;
+}
+
+const schema = z.object({
+    a: z.number(),
+    b: z.number(),
+});
+
+const addTool = new DynamicStructuredTool({
+    name: "add_numbers",
+    description: "Adds two numbers together",
+    schema: schema,
+    func: add       // pass the function directly
+});
+
+const result = await addTool.invoke({ a: 5, b: 10 });
+console.log(result);
+```
+
+### Custom tool using tool() wrapper
+```js
+import { tool } from "langchain"; // Creates tool automatically
+import * as z from "zod";
+
+function add({ a, b }) {
+    return a + b;
+}
+
+const addTool = tool((input) => add(input), {
+    name: "add_numbers",
+    description: "Add two numbers",
+    schema: z.object({
+        a: z.number(),
+        b: z.number(),
+    }),
+});
+
+const result = await addTool.invoke({ a: 5, b: 10 });
+console.log(result);        // 15
+```
+#### Difference between `DynamicStructuredTool` and `tool()`
+tool() - Smart Defaults
+```js
+const smartTool = tool(
+    ({ query }) => `Found: ${query}`,  // 1. Function (auto-parsed)
+    {
+        name: "search",                   // 2. Name (required)
+        schema: z.object({ query: z.string() }),  // 3. Schema (required)
+        // ✅ Description auto-generated from schema .describe()
+        // ✅ All other fields have production defaults
+    }
+);
+``` 
+DynamicStructuredTool - Everything Explicit
+```js
+const explicitTool = DynamicStructuredTool.fromFunction({
+    name: "search",                             // Required
+    description: "Search something",            // ✅ Must manually write
+    schema: z.object({ query: z.string() }),    // Required
+    func: ({ query }) => `Found: ${query}`,     // Required (duplicate function)
+    returnDirect: false,                        // Required (explicit default)
+    parseError: undefined,                      // Required (explicit default)
+    // ❌ No smart defaults - must specify everything
+});
+```
+
+### BaseTool
+BaseTool is the abstract parent class of all tools in LangChain.
+
+Every tool (DynamicTool, StructuredTool, custom tools) extends BaseTool internally
+
+#### Why BaseTool exists:
+LangChain needs one common interface so agents can:
+- List tools
+- Decide which tool to call
+- Invoke tools safely
+- Validate inputs
+- Track metadata
+
+BaseTool defines that contract.
+
+#### Custom Tool Using BaseTool
+```js
+import { BaseTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+class AddTool extends BaseTool {
+  name = "add_numbers";
+  description = "Add two numbers";
+
+  schema = z.object({
+    a: z.number(),
+    b: z.number(),
+  });
+
+  async _call({ a, b }) {
+    return String(a + b);
+  }
+}
+```
+> BaseTool has been removed from @langchain/core/tools in recent LangChain JS versions. Therefor this code snippet will not work anymore and use it only to understand how tool woks internally 
+
+
+
 
 [Go To Top](#content)
 
