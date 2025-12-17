@@ -17,6 +17,7 @@
     - [RunnableBranch](#runnablebranch)
     - [RunnablePassthrough](#runnablepassthrough)
 7. [Tools](#tools)
+8. [Tool Calling](#tool-calling)
 
 
 ---
@@ -1499,8 +1500,8 @@ function add(a, b) {
 import { DynamicTool } from "@langchain/core/tools";
 
 const addTool = new DynamicTool({
-    name: "add_numbers",
-    description: "Adds two numbers together",
+    name: "add_numbers",    // needed by LLM at time time of tool calling 
+    description: "Adds two numbers together",   // needed by LLM at time time of tool calling 
     func: async (input) => {
         const {a, b} = input
         return add(a, b);   // call the function here
@@ -1727,6 +1728,254 @@ class AddTool extends BaseTool {
 
 
 
+
+[Go To Top](#content)
+
+---
+# Tool Calling
+Tool calling in LangChain means allowing a language model (LLM) to decide when and how to use external tools (functions, APIs, databases, calculators, etc.) to complete a task instead of only generating text.
+
+### Why tool calling is needed
+LLMs are good at reasoning, but they cannot:
+- Access real-time data
+- Query databases
+- Call APIs
+- Run code reliably on their own
+
+Tool calling lets the model delegate work to tools when needed.
+
+### Simple illustration
+User asks:\
+**“What’s the weather in Mumbai right now?”**
+
+The LLM:
+1. Understands it needs real-time data
+2. Chooses the weather API tool
+3. Calls the tool with required parameters
+4. Gets the result
+5. Responds in natural language
+
+### Tool Binding
+tool binding isa step where you register a tool with LLM so that:
+1. The LLM knows what tools are available
+2. It knows what each tool does (via description)
+3. It knows what input format to use (via schema)
+
+
+### How to Bind  tool with LLM
+1. create a tool
+```js
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+async function multiply({ a, b }) {
+    return a * b;
+}
+const schema = z.object({
+    a: z.number(),
+    b: z.number(),
+});
+
+const multiplyTool = new DynamicStructuredTool({
+    name: "multiply_numbers",
+    description: "Multiplies two numbers",
+    schema: schema,
+    func: multiply,
+});
+```
+2. initialize the LLM
+```js 
+import "dotenv/config";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+```
+3. bind the tool with LLM
+```js
+const llm_with_tool = llm.bindTools([multiplyTool]);
+```
+> You can pass multiple tools inside that array to bind multiple tools with LLm
+### Complete code
+```js
+import "dotenv/config";
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+
+async function multiply({ a, b }) {
+    return a * b;
+}
+const schema = z.object({
+    a: z.number(),
+    b: z.number(),
+});
+
+const multiplyTool = new DynamicStructuredTool({
+    name: "multiply_numbers",
+    description: "Multiplies two numbers",
+    schema: schema,
+    func: multiply,
+});
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const llm_with_tool = llm.bindTools([multiplyTool]);
+```
+### Tool Calling
+Tool calling is the process where the LLM decides during the conversation or task, that it needed to use a specific tool and generate a structured output with:
+- the name of tool
+- and the argument to call it with
+
+> LLM does not actually run the tool, it just suggest the tool and the input argument. the actual execution is handled by langchain or programmers
+
+### Example
+```js
+const response1 = await llm_with_tool.invoke("Multiply 5 and 10.");
+console.log("response for multiply query");
+console.log(response1.content);
+
+const response2 = await llm_with_tool.invoke("hey");
+console.log("response for normal query");
+console.log(response2.content);
+```
+output:
+```
+[
+  {
+    type: 'functionCall',
+    functionCall: { name: 'multiply_numbers', args: [Object] }
+  }
+]
+response for normal query
+Hello! How can I help you today?
+```
+- name = name of the tool that need to be called
+- args = input arguments
+    ```js
+    console.log(response3.content[0].functionCall.args);
+    ```
+    output
+    ```js
+    { a: 5, b: 10 }
+    ```
+as you can see LLM generate the structure output for calling the tool and does not call the tool directly
+> it does not generate the structured tool calling output for normal user query
+
+### Another way to check this tool calling feature
+we can use `.tool_calls` to check whether we need to call any tools or not
+- `.tool_calls` returns the array of tool that needed to be called, if it return an empty array then that mean there is no need to call any tool
+
+Example:
+```js
+const response1 = await llm_with_tool.invoke("Multiply 5 and 10.");
+console.log("response for multiply query");
+console.log(response1.tool_calls);
+
+const response2 = await llm_with_tool.invoke("hey");
+console.log("response for normal query");
+console.log(response2.tool_calls);
+```
+output
+```
+response for multiply query
+[
+  {
+    type: 'tool_call',
+    id: '431ec89d-d05b-4f09-b5af-4210a67a514c',
+    name: 'multiply_numbers',
+    args: { a: 5, b: 10 }
+  }
+]
+response for normal query
+[]
+```
+
+### Tool Execution
+Tool execution is tha step where the actual code (tool) is run using the input argument that the LLM suggested during tool calling
+
+#### Option 1: direct answer of the user query
+```js
+const response = await llm_with_tool.invoke("Multiply 5 and 10.");
+const args = response.tool_calls[0].args
+const ans = await multiplyTool.invoke(args)     // pass the arguments only
+console.log(ans);   // output = 50
+```
+
+#### Option 2: Get the Tool message (a type of [message object](./Readme_For_RAG.md/#messages))
+
+```js
+const response = await llm_with_tool.invoke("Multiply 5 and 10.");
+const ans = await multiplyTool.invoke(response.tool_calls[0])   // pass entire tool_calls
+console.log(ans);
+```
+output:
+```
+ToolMessage {
+  "content": "50",
+  "name": "multiply_numbers",
+  "additional_kwargs": {},
+  "response_metadata": {},
+  "tool_call_id": "ad27e4d1-1488-40eb-a8ae-ece7af55c47e"
+}
+```
+we can use this tool message to generate insight using LLM
+
+### Final code 
+```js
+import "dotenv/config";
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage } from "@langchain/core/messages";
+import { z } from "zod";
+
+async function multiply({ a, b }) {
+    return a * b;
+}
+const schema = z.object({
+    a: z.number(),
+    b: z.number(),
+});
+
+const multiplyTool = new DynamicStructuredTool({
+    name: "multiply_numbers",
+    description: "Multiplies two numbers",
+    schema: schema,
+    func: multiply,
+});
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const llm_with_tool = llm.bindTools([multiplyTool]);
+
+const query = new HumanMessage("Multiply 5 and 10.");
+
+const messages = [query];   // maintain the chat history
+
+const response = await llm_with_tool.invoke(messages);
+
+messages.push(response);    // add AIresponse to history array
+
+const ans = await multiplyTool.invoke(response.tool_calls[0]);
+
+messages.push(ans); // add tool message to history aray
+
+const final_ans = await llm_with_tool.invoke(messages);
+
+console.log(final_ans.content);
+```
+output:
+```
+The result of multiplying 5 and 10 is 50.
+```
 
 [Go To Top](#content)
 
