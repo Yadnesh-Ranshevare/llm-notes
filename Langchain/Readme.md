@@ -1502,12 +1502,14 @@ import { DynamicTool } from "@langchain/core/tools";
 const addTool = new DynamicTool({
     name: "add_numbers",    // needed by LLM at time time of tool calling 
     description: "Adds two numbers together",   // needed by LLM at time time of tool calling 
-    func: async (input) => {
-        const {a, b} = input
+    func: async (input) => {    
+        const {a, b} = input    // destructure the output
         return add(a, b);   // call the function here
     },
 });
 ```
+> `func` is the method that only accepts the input in object format, that way we first destructure it
+
 3. invoke the tool
 ```js
 await addTool.invoke({ a: 5, b: 10 });      
