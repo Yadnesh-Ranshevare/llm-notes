@@ -18,6 +18,8 @@
     - [RunnablePassthrough](#runnablepassthrough)
 7. [Tools](#tools)
 8. [Tool Calling](#tool-calling)
+9. [Agents](#agents)
+10. [ReAct Design Pattern](#react-design-pattern)
 
 
 ---
@@ -1978,6 +1980,424 @@ output:
 ```
 The result of multiplying 5 and 10 is 50.
 ```
+
+[Go To Top](#content)
+
+---
+# Agents
+An AI agent is an intelligent system that receive a high level goal from user, and autonomously plan, decides, and execute a sequence of action by using external tools, API's, or knowledge source, all while maintaining context, reasoning over multiple steps, adapting to new information, and optimizing fo the intended outcome
+
+> Agents = LLM + Tools
+
+### Characteristic Of AI Agents
+1. **Goal** driven: you tell AI agent what you want, not how to do it
+2. **Autonomous planning**: AI agents breaks down the problem and sequence task on it own
+3. **Tool Using**: Agents calls API's, calculator, Search Tools, etc.
+4. **Context Aware**: Maintains memory across steps to inform future action
+
+5. **Adaptive**: Rethinks plan when things change (eg., API fails, no data)
+
+### How to Create a Agents
+Agents accepts at lest two parameter:
+1. model: which LLM model it should use
+2. tools: an array that contains the list of tools that the Agent can use
+
+Example:
+
+```js
+import { createAgent } from "langchain";
+
+const agent = createAgent({
+    model: llm,
+    tools: [calculatorTool],
+});
+
+const result = await agent.invoke({ 
+    messages: [{ role: "user", content: "What is 5 + 10?" }]    // agent always accepts the message objects
+});
+
+console.log(result);
+```
+output:
+
+```js
+{
+  messages: [
+    HumanMessage {
+      "id": "c8d061b4-4ef6-4d40-85af-cb9bc38c0343",
+      "content": "What is 5 + 10?",
+      "additional_kwargs": {},
+      "response_metadata": {}
+    },
+    AIMessage {
+      "id": "915ce7b4-6745-4bdb-bd73-e27b94e80e0b",
+      "content": [
+        {
+          "type": "functionCall",
+          "functionCall": {
+            "name": "calculator",
+            "args": "[Object]"
+          }
+        }
+      ],
+      "name": "model",
+      "additional_kwargs": {
+        "finishReason": "STOP",
+        "index": 0,
+        "finishMessage": "Model generated function call(s).",
+        "__gemini_function_call_thought_signatures__": {
+          "0ea84909-014b-4765-84fe-32ecb68e9b19": "CpcCAXLI2nw+W6bmpUrPuWNGh8ssWeqGYUs/5jAONHpugk4umI1IV2Bzmp2+cmDv1WC4d0WzC1h/UuGdgNmDwPZE72c4qr4r4DtJPKm2QhxQVIgMgZZ56g9XUh66FKjIrJ+90+5OV3Pj4ytXR/shnymRd50eWLstjjQJj49aglATc88AbTF7DMMx0K7ktAIxwunZg6PbKvKUr/3T2LVHdn5qMXTxxQ6vXPmQ8RIZ3lgC9vgNJ6ioIj0+ehlVwcorpbptkEbE3J/qllwIAQgr6c9HEQiZOFOeQsG8YFu5W0MSiL3Iv+Uow1+X2hF4C/gTVOol8ZbMQb8DCAZr2M5OQk6R5cW3tXKWLPsIglRjoDyPqM74CKW224Ct"
+        }
+      },
+      "response_metadata": {
+        "tokenUsage": {
+          "promptTokens": 55,
+          "completionTokens": 19,
+          "totalTokens": 142
+        },
+        "finishReason": "STOP",
+        "index": 0,
+        "finishMessage": "Model generated function call(s)."
+      },
+      "tool_calls": [
+        {
+          "type": "tool_call",
+          "id": "0ea84909-014b-4765-84fe-32ecb68e9b19",
+          "name": "calculator",
+          "args": {
+            "b": 10,
+            "a": 5
+          }
+        }
+      ],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 55,
+        "output_tokens": 19,
+        "total_tokens": 142
+      }
+    },
+    ToolMessage {
+      "id": "8448dbbf-6027-4337-8625-d4eeeaf78645",
+      "content": "15",
+      "name": "calculator",
+      "additional_kwargs": {},
+      "response_metadata": {},
+      "tool_call_id": "0ea84909-014b-4765-84fe-32ecb68e9b19"
+    },
+    AIMessage {
+      "id": "3df75227-2dc9-4a89-87bd-6b6fc4d379a5",
+      "content": "The answer is 15.",
+      "name": "model",
+      "additional_kwargs": {
+        "finishReason": "STOP",
+        "index": 0,
+        "__gemini_function_call_thought_signatures__": {}
+      },
+      "response_metadata": {
+        "tokenUsage": {
+          "promptTokens": 88,
+          "completionTokens": 7,
+          "totalTokens": 95
+        },
+        "finishReason": "STOP",
+        "index": 0
+      },
+      "tool_calls": [],
+      "invalid_tool_calls": [],
+      "usage_metadata": {
+        "input_tokens": 88,
+        "output_tokens": 7,
+        "total_tokens": 95
+      }
+    }
+  ]
+}
+```
+
+Therefor we can see that Agent has return message array that contains the whole conversation history
+
+from the above conversation history we can see that:
+<details>
+<summary><b>1. we call LLM saying: <code>What is 5 + 10?</code></b></summary>
+
+```js
+// messages[0]
+HumanMessage {
+    "id": "c8d061b4-4ef6-4d40-85af-cb9bc38c0343",
+    "content": "What is 5 + 10?",
+    "additional_kwargs": {},
+    "response_metadata": {}
+},
+```
+
+</details>
+</br>
+
+
+<details>
+<summary><b>2. LLM responded with saying with make a tool call:</b></summary>
+
+
+
+```js
+// messages[1]
+AIMessage {
+    "id": "915ce7b4-6745-4bdb-bd73-e27b94e80e0b",
+    "content": [
+        {
+            "type": "functionCall",
+            "functionCall": {
+                "name": "calculator",
+                "args": "[Object]"
+            }
+        }
+    ],
+    "name": "model",
+    "additional_kwargs": {
+        "finishReason": "STOP",
+        "index": 0,
+        "finishMessage": "Model generated function call(s).",
+        "__gemini_function_call_thought_signatures__": {
+            "0ea84909-014b-4765-84fe-32ecb68e9b19": "CpcCAXLI2nw+W6bmpUrPuWNGh8ssWeqGYUs/5jAONHpugk4umI1IV2Bzmp2+cmDv1WC4d0WzC1h/UuGdgNmDwPZE72c4qr4r4DtJPKm2QhxQVIgMgZZ56g9XUh66FKjIrJ+90+5OV3Pj4ytXR/shnymRd50eWLstjjQJj49aglATc88AbTF7DMMx0K7ktAIxwunZg6PbKvKUr/3T2LVHdn5qMXTxxQ6vXPmQ8RIZ3lgC9vgNJ6ioIj0+ehlVwcorpbptkEbE3J/qllwIAQgr6c9HEQiZOFOeQsG8YFu5W0MSiL3Iv+Uow1+X2hF4C/gTVOol8ZbMQb8DCAZr2M5OQk6R5cW3tXKWLPsIglRjoDyPqM74CKW224Ct"
+        }
+    },
+    "response_metadata": {
+        "tokenUsage": {
+            "promptTokens": 55,
+            "completionTokens": 19,
+            "totalTokens": 142
+        },
+        "finishReason": "STOP",
+        "index": 0,
+        "finishMessage": "Model generated function call(s)."
+    },
+    "tool_calls": [
+        {
+            "type": "tool_call",
+            "id": "0ea84909-014b-4765-84fe-32ecb68e9b19",
+            "name": "calculator",
+            "args": {
+                "b": 10,
+                "a": 5
+            }
+        }
+    ],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+        "input_tokens": 55,
+        "output_tokens": 19,
+        "total_tokens": 142
+    }
+}
+```
+</details>
+</br>
+
+<details>
+<summary><b>3. we perform execute the tool call</b></summary>
+
+```js
+// messages[2]
+ToolMessage {
+    "id": "8448dbbf-6027-4337-8625-d4eeeaf78645",
+    "content": "15",        // this is your ans of tool execution
+    "name": "calculator",
+    "additional_kwargs": {},
+    "response_metadata": {},
+    "tool_call_id": "0ea84909-014b-4765-84fe-32ecb68e9b19"
+},
+```
+</details>
+
+</br>
+
+
+<details>
+<summary>
+    <b>4. we pass this whole conversation to LLM again and LLM respond with:
+    <code>The answer is 15.</code></b>
+</summary>
+
+
+
+
+```js
+// messages[3]
+AIMessage {
+    "id": "3df75227-2dc9-4a89-87bd-6b6fc4d379a5",
+    "content": "The answer is 15.",
+    "name": "model",
+    "additional_kwargs": {
+          "finishReason": "STOP",
+          "index": 0,
+          "__gemini_function_call_thought_signatures__": {}
+    },
+    "response_metadata": {
+        "tokenUsage": {
+            "promptTokens": 88,
+            "completionTokens": 7,
+            "totalTokens": 95
+        },
+        "finishReason": "STOP",
+        "index": 0
+    },
+    "tool_calls": [],
+    "invalid_tool_calls": [],
+    "usage_metadata": {
+        "input_tokens": 88,
+        "output_tokens": 7,
+        "total_tokens": 95
+    }
+}
+```
+</details>
+
+</br>
+
+### Complete code
+```js
+import "dotenv/config";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { createAgent, DynamicStructuredTool } from "langchain";
+import { z } from "zod";
+
+const schema = z.object({
+    a: z.number(),
+    b: z.number(),
+});
+
+const calculatorTool = new DynamicStructuredTool({
+    name: "calculator",
+    description: "Useful for math calculations",
+    schema,
+    func: async ({ a, b }) => {
+        return a + b;
+    },
+});
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.API_KEY,
+});
+
+const agent = createAgent({
+    model: llm,
+    tools: [calculatorTool],
+});
+
+const result = await agent.invoke({ messages: [{ role: "user", content: "What is 5 + 10?" }] });
+
+console.log(result);
+```
+
+
+
+[Go To Top](#content)
+
+---
+# ReAct Design Pattern
+ReAct in LangChain is "Reasoning + Acting" - the core agent pattern where LLMs alternate between thinking (reasoning) and doing (tool calls).
+
+> `createAgent` uses the ReAct pattern by default.
+
+### ReAct Loop (The Agent Brain)
+```
+User Input → [Reason → Act → Observe] → Repeat → Final Answer
+          ↑_____________________________↓
+            Loop continues until done
+```
+How it works step-by-step:
+- **Reason**: LLM thinks "What should I do next?"
+- **Act**: LLM calls a tool (or says "I'm done")
+- **Observe**: Agent executes tool → feeds result back to LLM
+- **Repeat**: LLM sees result → reasons again
+
+### Visual ReAct Flow
+```
+User: "What's the weather in SF + 5+10?"
+
+1. REASON: "I need weather data AND math calculation"
+   ↓
+2. ACT: Call get_weather("SF") + calculator(5,10)
+   ↓ (Agent auto-executes both)
+3. OBSERVE: "SF: 72°F sunny" + "15"
+   ↓
+4. REASON: "Combine results for final answer"
+   ↓
+5. ACT: "Final answer: Weather in SF is 72°F sunny. 5+10=15"
+```
+
+### Real Example (What Happens Inside `createAgent`)
+```js
+const result = await agent.invoke({
+    messages: [{ role: "user", content: "Weather in Tokyo?" }]
+});
+```
+Behind the scenes (5 messages created automatically):
+```js
+[
+  {"role": "user", "content": "Weather in Tokyo?"},           // 1. Input
+  {"role": "ai", "tool_calls": [{"name": "get_weather"}]} ,   // 2. REASON+ACT
+  {"role": "tool", "content": "Tokyo: 68°F rainy"},          // 3. OBSERVE  
+  {"role": "ai", "content": "Final answer..."}               // 4. REASON+ACT
+]
+```
+### Other design patter
+
+#### 1. Function Calling (Fastest, Simplest)
+Direct tool calls without reasoning loop:
+```js
+// No agent loop - just bind tools to LLM
+const llmWithTools = llm.bindTools([calculatorTool]);
+const result = await llmWithTools.invoke("5+10"); // Direct tool call
+```
+#### 2. Plan-and-Execute (Complex Workflows)
+Plan all steps first, then execute:
+```js
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+
+const planner = createReactAgent({
+    llm,
+    tools: [searchTool],
+    systemPrompt: "Create a step-by-step plan. Do NOT execute."
+});
+
+const executor = createReactAgent({
+    llm,
+    tools: [searchTool, writeFileTool],
+    systemPrompt: "Execute ONE step from the plan."
+});
+
+// 1. Generate plan
+// 2. Execute each step
+```
+#### 3. Self-Ask (Fact-Finding)
+```js
+const selfAskAgent = createAgent({
+    model: llm,
+    tools: [wikipediaTool],
+    systemPrompt: `Follow this pattern:
+1. Ask yourself a question about the user input
+2. Use Wikipedia to answer
+3. Repeat until you know the final answer`,
+});
+```
+#### 4. Reflexion (Self-Improving)
+Critiques its own answers, tries again:
+```js
+const reflexionAgent = createAgent({
+    model: llm,
+    tools: [codeInterpreter],
+    middleware: [
+        reflexionMiddleware({
+            criticPrompt: "Was this answer correct? Why or why not?",
+            maxIterations: 3
+        })
+    ]
+});
+```
+
 
 [Go To Top](#content)
 
