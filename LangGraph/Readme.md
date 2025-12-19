@@ -14,12 +14,13 @@ In simple words:
 - LangChain = linear flow (step → step)
 - LangGraph = flowchart with loops, branches, and memory
 
+LangGraph is an orchestration framework means it helps you coordinate, control, and manage multiple AI/LLM-related steps work together
 
 ### Core idea
 LangGraph treats your AI app as a directed graph:
 - Nodes are functions/agents that do work (call an LLM, query a DB, run tools, apply business logic, ask the user, etc.).
 - Edges define which node runs next, including branching (if/else), loops, and retries.
-- State (chat history) is a shared, persistent object that flows through the graph, letting agents read/update context across turns and sessions.
+- State (data) is a shared, persistent object that flows through the graph, letting agents read/update context across turns and sessions.
 
 ### Simple Illustration
 Imagine a coding assistant agent:
@@ -37,8 +38,9 @@ Search Docs        Return Answer
 LLM Thinks again
 ```
 This loop + decision is hard in plain LangChain but natural in LangGraph.
-> This graph like structure is what we called `workflow`
 
+This graph like structure is what we called `workflow`
+> An LLM workflow is the step-by-step pipeline that defines how data moves through an AI system, including when the LLM is called, how its output is processed, and what happens next.
 ### How memory works in LangGraph
 LangGraph treats “memory” as explicit, persistent state plus optional long‑term JSON memories and checkpoints.
 
@@ -136,6 +138,202 @@ Input → Step1 → Step2 → Step3 → Output
 | **Learning Curve**         | Easier for prototypes.                | Better for production complexity.                        |
 | **Best For**               | Predictable linear flows, prompt context mgmt. | Fine-grained control, observability, state sync.       |
 
+
+[Go To Top](#content)
+
+---
+# Installation
+1. initialize a node repo
+```bash
+npm init -y
+```
+2. install LangGraph
+```bash
+npm install @langchain/langgraph @langchain/core
+```
+
+[Go To Top](#content)
+
+---
+# How to construct Graphs
+
+1. create the state schema
+```js
+import {z} from 'zod'
+
+const GraphState = z.object({
+    height:z.number(),
+    weight:z.number(),
+    bmi:z.number()
+})
+```
+>This state is like a central dataset for the graph, whenever any node needs some data they get that via this state object and each node can update this state directly, to keep the data updated throughout the graph
+
+
+
+2. initialize the graph using this schema
+```js
+import { StateGraph } from "@langchain/langgraph";
+
+const graph = new StateGraph(GraphState)
+```
+
+#### After this our graph is ready with a central storage (state) and now we just need to add nodes and connect them by edges
+
+### How to create Nodes
+Nodes are the individual function that perform certain task
+
+Each Node:
+- accept the state object 
+- if any node need any data they get it via this state object
+- it can update this sate object if needed
+- it also return the state object so it can pass it to next node
+
+**Coding implementation for Node**
+
+1. create a function that accept the state of a graph
+```js
+function BMI(state){}   // state is pass by the previous node
+```
+2. access the state data
+```js
+function BMI(state){
+    const height = state.height
+    const weight = state.weight
+    const bmi = weight/(height*height)  // calculating bmi
+}
+```
+3. update the state
+```js
+function BMI(state){
+    const height = state.height
+    const weight = state.weight
+    const bmi = weight/(height*height)
+
+    const newState = {
+        height,
+        weight,
+        bmi     // updating bmi value
+    }
+}
+```
+4. return the new state
+```js
+function BMI(state){
+    const height = state.height
+    const weight = state.weight
+    const bmi = weight/(height*height)
+
+    const newState = {
+        height,
+        weight,
+        bmi
+    }
+    return newState
+}
+```
+**Attach the Node to Graph**
+```js
+// syntax: .addNode("name_of_node", function to call)
+graph.addNode("calculate_bmi",BMI)
+```
+### How to connect node using edges
+syntax:
+```js
+.addEdge("fist_node","second_node")
+```
+LangGraph provide some inbuilt Nodes like:
+- `START`: represent the start node of the graph
+- `END`: represent the end node of the graph
+
+**Coding Implementation**
+```js
+graph.addEdge(START,"calculate_bmi")
+graph.addEdge("calculate_bmi",END)
+```
+Mental Model
+```
+START -> "calculate_bmi" -> END
+```
+
+#### Now our graph is finally ready node and edges are declared we just need to callable this into a workflow that can process input and return output
+```js
+const workflow = graph.compile();
+```
+`.compile()` method is used to finalize a graph definition into an executable graph.
+
+When you call `.compile()`:
+1. **Validates the graph**
+    - Checks that all nodes exist
+    - Ensures edges are valid
+    - Confirms start/end nodes
+2. **Freezes the structure**
+    - No more nodes or edges can be added
+    - Graph becomes immutable
+3. **Creates a runnable executor**
+    - Adds state management
+    - Handles node transitions
+    - Enables `.invoke()` / `.stream()` / `.batch()`
+
+### Execute this graph
+```js
+const initialState = {
+    height:1.8,
+    weight:80
+}
+const res = await workflow.invoke(initialState)
+```
+each graph accept the initial state object that hold the initial info about the state (central storage) 
+
+During the execution any Node inside that graph can update this state object, and we get the final state as a response at the end of the execution
+
+### Complete code
+```js
+import { z } from "zod";
+import { StateGraph, START, END } from "@langchain/langgraph";
+
+const GraphState = z.object({
+    height: z.number(),
+    weight: z.number(),
+    bmi: z.number(),
+});
+
+const graph = new StateGraph(GraphState);
+
+function BMI(state) {
+    const height = state.height;
+    const weight = state.weight;
+    const bmi = weight / (height * height);
+
+    const newState = {
+        height,
+        weight,
+        bmi,
+    };
+    return newState;
+}
+
+graph.addNode("calculate_bmi", BMI);
+
+graph.addEdge(START, "calculate_bmi");
+
+graph.addEdge("calculate_bmi", END);
+
+const workflow = graph.compile();
+
+const initialState = {
+    height: 1.8,
+    weight: 80,
+};
+
+const res = await workflow.invoke(initialState);
+
+console.log(res);
+```
+output:
+```js
+{ height: 1.8, weight: 80, bmi: 24.691358024691358 }
+```
 
 [Go To Top](#content)
 
