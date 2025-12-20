@@ -4,6 +4,7 @@
 3. [How to construct Graphs](#how-to-construct-graphs)
 4. [Prompt Chaining / Sequential Workflow](#prompt-chaining-workflow)
 5. [Parallel Workflow](#parallel-workflow)
+6. [Conditional Workflow](#conditional-workflow)
 
 ---
 
@@ -1006,6 +1007,177 @@ const finalState = await workflow.invoke(initialState);
 ```
 ### Complete code
 [click here](./src/Conditional.js) to visit the complete code and its output
+
+[Go To Top](#content)
+
+---
+# Iterative Workflow
+An iterative workflow is a way of working where you build something in small steps, check the result, improve it, and repeat the process until the final solution is ready.
+
+Instead of trying to finish everything at once, you loop through the same steps multiple times, refining the outcome each time.
+
+> Build → Test → Get feedback → Improve → Repeat
+
+### Example:
+lets assume a system that generates a post using LLM, and uses another LLM to evaluate that LLM generated post
+
+second LLM we provide the feedback on the generated post, and based on that feedback we will decide whether to improve that post further or accept it 
+
+```
+           START
+             |
+             ▼
+      Generate Post (LLM 1)
+             |
+             ▼
+      Evaluate Post (LLM 2) <─────────────┐
+             |                            |  
+             ▼                            |
+     Is Post Acceptable?                  |
+          /         \                     |
+       Yes           No                   |  
+        |             |                   |
+        ▼             ▼                   |  
+   Accept Post   Perform OPtimization ────┘        
+```
+
+### Coding Implementation
+1. initialize the LLM's
+```js
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+import "dotenv/config";
+
+const generator_llm = new ChatGoogleGenerativeAI({  // for generating the post
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const evaluator_llm = new ChatGoogleGenerativeAI({  // for evaluating the post
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const evaluation_schema = z.object({
+    evaluation: z.enum(["good", "needs improvement"]),
+    feedback: z.string(),
+});
+
+const structured_llm = evaluator_llm.withStructuredOutput(evaluation_schema)    // as we need output in structured format
+
+const optimizer_llm = new ChatGoogleGenerativeAI({  // to perform optimization
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+```
+in above code snippet even though we have use same LLM models for each step, it is recommended that to use different LLM for different task 
+
+**The idea is task specialization:** even if models come from the same family, different variants (or providers) are better at different jobs like creativity, evaluation, or cost-efficient iteration.
+
+Examples:
+- use `"models/gemini-2.5-pro"` when you want more creative & expressive behavior
+- use `"models/gemini-2.5-flash"` when you want fast & logical behavior
+- use `"models/gemini-2.0-flash-lite"` when you want cheaper & faster execution
+
+2. initialize a graph
+```js
+import { StateGraph } from "@langchain/langgraph";
+import { z } from "zod";
+
+const GraphState = z.object({
+    topic: z.string(),
+    post: z.string(),
+    evaluation: z.enum(["good", "needs improvement"]),
+    feedback: z.string(),   // as we want to optimize the post based on feedback
+    iteration: z.number(),  // to keep the count of iteration
+    max_iterations: z.number(), // to avoid the case of infinite iteration
+});
+
+const graph = new StateGraph(GraphState);
+```
+3. declare the nodes
+```js
+async function generatePost(state) {
+    const post = await generator_llm.invoke(`Generate a blog post on topic: ${state.topic}`);
+    return { post: post.content };
+}
+graph.addNode("generate_post", generatePost);
+
+async function evaluatePost(state){
+    const prompt = `Evaluate the following blog post and tell whether to accept it or improve it along with proper feedback ${state.post}`
+    const response = await structured_llm.invoke(prompt);   // generating a structured output
+    return { evaluation: response.evaluation, feedback: response.feedback };
+}
+graph.addNode("evaluate_post", evaluatePost);
+
+async function optimizePost(state){
+    const prompt = 
+    `improve the following post for topic ${state.topic} according to given feedback 
+    POST:
+    ${state.post}
+    FEEDBACK:
+    ${state.feedback}`
+
+    const response = await optimizer_llm.invoke(prompt);
+    return { post: response.content , iteration: state.iteration + 1 };
+}
+graph.addNode("optimize_post", optimizePost);
+```
+> Above prompt are too simple and will not wok properly use them only to understand how flow work, and perform proper prompt engineering for better results
+4. connect the edges
+```js
+import { START, END } from "@langchain/langgraph";
+
+function condition(state){
+    if (state.evaluation === "needs improvement" && state.iteration < state.max_iterations){
+        return "optimize_post";     // perform optimization
+    } else {
+        return END;     // accept the post
+    }
+}
+
+graph.addEdge(START, "generate_post");
+graph.addEdge("generate_post", "evaluate_post");
+
+graph.addConditionalEdges("evaluate_post", condition);
+
+graph.addEdge("optimize_post", "evaluate_post");
+```
+mental Model
+
+```
+           START
+             |
+             ▼
+      Generate Post (LLM 1)
+             |
+             ▼
+      Evaluate Post (LLM 2) <─────────────┐
+             |                            |  
+             ▼                            |
+     Is Post Acceptable?                  |
+          /         \                     |
+       Yes           No                   |  
+        |             |                   |
+        ▼             ▼                   |  
+       END   Perform OPtimization ────────┘        
+```
+5. compile the graph into workflow and execute it
+```js
+const workflow = graph.compile();
+
+const initialState = {
+    topic: "AI",
+    iteration: 1,
+    max_iterations: 5,
+};
+const res = await workflow.invoke(initialState);
+```
+
+### Complete code
+[click here](./src/Iterative.js) to see the final code with proper prompt engineering and its output
+
+
 
 [Go To Top](#content)
 
