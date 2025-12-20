@@ -560,7 +560,7 @@ graph.addNode("calculate_Strick_Rate", calculateStrickRate)
 function calculateBoundaryPercentage(state){
     const four = state.fours * 4    // runs scored by 4's
     const six = state.sixes * 6     // run scored by 6's
-    state.boundaryPercentage = (state.ballFaced / (four + six)) * 100
+    state.boundaryPercentage = ((fourRuns + sixRuns) / state.totalRuns ) * 100
     return state
 }
 graph.addNode("calculate_Boundary_Percentage", calculateBoundaryPercentage)
@@ -684,7 +684,7 @@ function calculateBoundaryPercentage(state) {
   const sixRuns = state.sixes * 6
 
   return {
-    boundaryPercentage: (state.ballFaced / (fourRuns + sixRuns)) * 100
+    boundaryPercentage: ((fourRuns + sixRuns) / state.totalRuns ) * 100
   }
 }
 ```
@@ -728,7 +728,7 @@ function calculateBoundaryPercentage(state) {
     const sixRuns = state.sixes * 6;
 
     return {
-        boundaryPercentage: (state.ballFaced / (fourRuns + sixRuns)) * 100,
+        boundaryPercentage: ((fourRuns + sixRuns) / state.totalRuns ) * 100,
     };
 }
 
@@ -778,11 +778,11 @@ Output:
   sixes: 2,
   totalRuns: 80,
   ballFaced: 100,
-  boundaryPercentage: 357.14285714285717,
+  boundaryPercentage: 35,
   strickRate: 80,
   ballsPerBoundary: 16.666666666666668,
   summary: 'strick Rate = 80 \n' +
-    'boundary percentage = 357.14285714285717 \n' +
+    'boundary percentage = 35 \n' +
     ' balls per boundary =  16.666666666666668'
 }
 ```
