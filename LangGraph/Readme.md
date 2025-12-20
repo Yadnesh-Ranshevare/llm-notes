@@ -3,7 +3,7 @@
 2. [Installation](#installation)
 3. [How to construct Graphs](#how-to-construct-graphs)
 4. [Prompt Chaining / Sequential Workflow](#prompt-chaining-workflow)
-
+5. [Parallel Workflow](#parallel-workflow)
 
 ---
 
@@ -495,6 +495,295 @@ Output:
     "### The Road Ahead: What's Next for AI?\n" +
     '\n' +
     "The journey of AI is far from over. We can expect AI to become even more seamlessly integrated into every facet of our lives, transforming industries and personal experiences in ways we're just beginning to imagine. Research into Artificial General Intelligence (AGI) will co"... 1746 more characters
+}
+```
+
+[Go To Top](#content)
+
+---
+# Parallel Workflow
+A parallel workflow is a workflow where multiple tasks run at the same time instead of one after another, as long as they don’t depend on each other.
+
+> Sequential workflow → Task A → Task B → Task C
+>
+>Parallel workflow → Task A and Task B and Task C run together
+
+### Example:
+let say we have a data of a batsman from a single match, and we want to calculate hit Stick rate, boundary percentage, and balls per boundary
+
+where:
+- strick rate = $\frac{Runs\ Scored}{Ball\ faced} \times 100$
+- balls per boundary = $\frac{Ball\ Faced}{\text{no. of fours + no. of six} }$
+
+- boundary percentage = $\frac{\text{}Runs from Boundaries}{\text{Total Runs Scored}} \times 100$
+
+as we can see Stick rate, boundary percentage, and balls per boundary are independent of each other i.e, they doesn't need each other to compute them self
+ 
+therefor we can use parallel workflow for this problem statement
+
+```
+        ┌───> calculate_Strick_Rate ───────────┐
+        │                                      │ 
+START ──┼───> calculate_Boundary_Percentage ───┼───> generate_summary ──> END 
+        │                                      │ 
+        └───> calculate_balls_per_boundary ────┘
+```
+
+### Coding Implementation
+1. initialize a Graph
+```js
+import { StateGraph } from "@langchain/langgraph";
+
+const GraphState = z.object({
+    fours: z.number(),
+    sixes: z.number(),
+    totalRuns: z.number(),
+    ballFaced:z.number(),
+    boundaryPercentage: z.number(),
+    strickRate: z.number(),
+    ballsPerBoundary: z.number(),
+    summary: z.string()
+})
+
+const graph = new StateGraph(GraphState);
+```
+2. Create Nodes
+```js
+
+function calculateStrickRate(state){
+    state.strickRate = (state.totalRuns/state.ballFaced)*100
+    return state
+}
+graph.addNode("calculate_Strick_Rate", calculateStrickRate)
+
+
+function calculateBoundaryPercentage(state){
+    const four = state.fours * 4    // runs scored by 4's
+    const six = state.sixes * 6     // run scored by 6's
+    state.boundaryPercentage = (state.ballFaced / (four + six)) * 100
+    return state
+}
+graph.addNode("calculate_Boundary_Percentage", calculateBoundaryPercentage)
+
+
+function calculateBallsPerBoundary(state){
+    state.ballsPerBoundary = (state.ballFaced / (state.fours + state.sixes))
+    return state
+}
+graph.addNode("calculate_balls_per_boundary", calculateBallsPerBoundary)
+
+
+function generateSummary(state){
+    state.summary = `strick Rate = ${state.strickRate} \nboundary percentage = ${state.boundaryPercentage} \n balls per boundary =  ${state.ballsPerBoundary}`
+    return state
+}
+graph.addNode("generate_summary", generateSummary)
+```
+3. Connect the edges
+```js
+graph.addEdge(START, "calculate_Strick_Rate")
+graph.addEdge(START, "calculate_Boundary_Percentage")
+graph.addEdge(START, "calculate_balls_per_boundary")
+
+graph.addEdge("calculate_Strick_Rate", "generate_summary")
+graph.addEdge("calculate_Boundary_Percentage", "generate_summary")
+graph.addEdge("calculate_balls_per_boundary", "generate_summary")
+
+graph.addEdge("generate_summary", END)
+```
+Mental Model:
+```
+        ┌───> calculate_Strick_Rate ───────────┐
+        │                                      │ 
+START ──┼───> calculate_Boundary_Percentage ───┼───> generate_summary ──> END 
+        │                                      │ 
+        └───> calculate_balls_per_boundary ────┘
+```
+4. compile the graph
+```js
+const workflow = graph.compile()
+```
+
+#### After this are workflow is ready to take input but instead of returning final state it will throw an error at run time
+```js
+const initialState = {
+    fours: 4,
+    sixes: 2,
+    totalRuns: 80,
+    ballFaced:100,
+}
+
+const finalState = await workflow.invoke(initialState)
+```
+output:
+```
+InvalidUpdateError: Invalid update for channel "fours" with values [4,4]: LastValue can only receive one value per step.
+```
+### Why this error occur
+
+If you look at our workflow there are three nodes all start from `START`:
+```js
+graph.addEdge(START, "calculate_Strick_Rate")
+graph.addEdge(START, "calculate_Boundary_Percentage")
+graph.addEdge(START, "calculate_balls_per_boundary")
+```
+mental model:
+```
+        ┌───> calculate_Strick_Rate 
+        │                                     
+START ──┼───> calculate_Boundary_Percentage 
+        │                                      
+        └───> calculate_balls_per_boundary
+```
+Each of those nodes returns the entire `state` object:
+```js
+return state
+```
+That means each node writes ALL fields, including:
+```js
+fours: 4
+sixes: 2
+```
+So langGraph think we are updating same `state` value from multiple nodes at the same time since they are running parallelly 
+> Even though the value is the same, two writes = illegal.
+
+Now focus this error line:\
+`LastValue can only receive one value per step`
+
+In LangGraph:
+- Each state field (like `fours`, `sixes`, etc.) is a channel
+- By default, every channel is a LastValue channel
+- A LastValue channel can only be written once per step
+
+since we are in parallel execution langGraph see updates in One single step
+```
+fours ← 4   (from node A)
+fours ← 4   (from node B)
+```
+Therefor we get `InvalidUpdateError` error saying:
+```
+InvalidUpdateError: Invalid update for channel "fours" with values [4,4]: LastValue can only receive one value per step.
+```
+### To solve this error we return partial state updates
+
+Each node should return only what it computes, not the whole state.
+
+#### EXample:
+Strike rate node
+```js
+function calculateStrickRate(state) {
+  return {  // only pass the part of the sate that has been updated
+    strickRate: (state.totalRuns / state.ballFaced) * 100
+  }
+}
+```
+Boundary percentage node
+```js
+function calculateBoundaryPercentage(state) {
+  const fourRuns = state.fours * 4
+  const sixRuns = state.sixes * 6
+
+  return {
+    boundaryPercentage: (state.ballFaced / (fourRuns + sixRuns)) * 100
+  }
+}
+```
+Balls per boundary node
+```js
+function calculateBallsPerBoundary(state) {
+  return {
+    ballsPerBoundary: state.ballFaced / (state.fours + state.sixes)
+  }
+}
+```
+
+### Final code
+```js
+import { StateGraph, START, END } from "@langchain/langgraph";
+import { z } from "zod";
+
+const GraphState = z.object({
+    fours: z.number(),
+    sixes: z.number(),
+    totalRuns: z.number(),
+    ballFaced: z.number(),
+    boundaryPercentage: z.number(),
+    strickRate: z.number(),
+    ballsPerBoundary: z.number(),
+    summary: z.string(),
+});
+
+const graph = new StateGraph(GraphState);
+
+function calculateStrickRate(state) {
+    return {
+        strickRate: (state.totalRuns / state.ballFaced) * 100,
+    };
+}
+
+graph.addNode("calculate_Strick_Rate", calculateStrickRate);
+
+function calculateBoundaryPercentage(state) {
+    const fourRuns = state.fours * 4;
+    const sixRuns = state.sixes * 6;
+
+    return {
+        boundaryPercentage: (state.ballFaced / (fourRuns + sixRuns)) * 100,
+    };
+}
+
+graph.addNode("calculate_Boundary_Percentage", calculateBoundaryPercentage);
+
+function calculateBallsPerBoundary(state) {
+    return {
+        ballsPerBoundary: state.ballFaced / (state.fours + state.sixes),
+    };
+}
+
+graph.addNode("calculate_balls_per_boundary", calculateBallsPerBoundary);
+
+function generateSummary(state) {
+    state.summary = `strick Rate = ${state.strickRate} \nboundary percentage = ${state.boundaryPercentage} \n balls per boundary =  ${state.ballsPerBoundary}`;
+    return state;
+}
+
+graph.addNode("generate_summary", generateSummary);
+
+graph.addEdge(START, "calculate_Strick_Rate");
+graph.addEdge(START, "calculate_Boundary_Percentage");
+graph.addEdge(START, "calculate_balls_per_boundary");
+
+graph.addEdge("calculate_Strick_Rate", "generate_summary");
+graph.addEdge("calculate_Boundary_Percentage", "generate_summary");
+graph.addEdge("calculate_balls_per_boundary", "generate_summary");
+
+graph.addEdge("generate_summary", END);
+
+const workflow = graph.compile();
+
+const initialState = {
+    fours: 4,
+    sixes: 2,
+    totalRuns: 80,
+    ballFaced: 100,
+};
+
+const finalState = await workflow.invoke(initialState);
+console.log(finalState);
+```
+Output:
+```js
+{
+  fours: 4,
+  sixes: 2,
+  totalRuns: 80,
+  ballFaced: 100,
+  boundaryPercentage: 357.14285714285717,
+  strickRate: 80,
+  ballsPerBoundary: 16.666666666666668,
+  summary: 'strick Rate = 80 \n' +
+    'boundary percentage = 357.14285714285717 \n' +
+    ' balls per boundary =  16.666666666666668'
 }
 ```
 
