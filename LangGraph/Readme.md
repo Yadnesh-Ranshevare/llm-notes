@@ -1,5 +1,8 @@
 # Content
 1. [Introduction](#introduction)
+2. [Installation](#installation)
+3. [How to construct Graphs](#how-to-construct-graphs)
+4. [Prompt Chaining / Sequential Workflow](#prompt-chaining-workflow)
 
 
 ---
@@ -187,7 +190,7 @@ Each Node:
 - accept the state object 
 - if any node need any data they get it via this state object
 - it can update this sate object if needed
-- it also return the state object so it can pass it to next node
+- it also return the state object (original / updated) so it can pass it to next node
 
 **Coding implementation for Node**
 
@@ -256,7 +259,7 @@ Mental Model
 START -> "calculate_bmi" -> END
 ```
 
-#### Now our graph is finally ready node and edges are declared we just need to callable this into a workflow that can process input and return output
+#### Now our graph is finally ready, node and edges are declared. We just need to callable this into a workflow that can process input and return output
 ```js
 const workflow = graph.compile();
 ```
@@ -283,7 +286,7 @@ const initialState = {
 }
 const res = await workflow.invoke(initialState)
 ```
-each graph accept the initial state object that hold the initial info about the state (central storage) 
+each graph accept the initial state object that hold the initial info about the state (central storage) before the execution started
 
 During the execution any Node inside that graph can update this state object, and we get the final state as a response at the end of the execution
 
@@ -333,6 +336,166 @@ console.log(res);
 output:
 ```js
 { height: 1.8, weight: 80, bmi: 24.691358024691358 }
+```
+
+[Go To Top](#content)
+
+---
+# Prompt Chaining Workflow
+
+Prompt chaining means breaking a complex task into multiple LLM steps, where the output of one prompt becomes the input to the next.
+
+### Example:
+Let say you have to write a blog on a certain topic, for which you are using LLM. But instead of writing a blog in one single go you:
+1. first give your topic to LLM  
+2. generate a detail outline for the blog
+3. on the bases of this outline you write a actual blog using LLM
+
+Mental Model
+```
+START -> 'LLM generate outlie' -> 'LLM write a blog based on outline' -> END
+```
+
+### Coding Implementation
+1. create a graph
+```js
+import { StateGraph } from "@langchain/langgraph"
+import {z} from "zod"
+
+const GraphState = z.object({
+    topic: z.string(),  
+    outline: z.string(),
+    blog: z.string(),
+})
+
+const graph = new StateGraph(GraphState);
+```
+2. initialize a LLM
+```js
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import "dotenv/config"
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+```
+3. Declare nodes
+```js
+async function GenerateOutline(state){
+    const outline = await llm.invoke(`Generate an outline for a blog post about ${state.topic}.`);  // get the topic from state
+    state.outline = outline.content // save the outline into the state
+    return state
+}
+
+graph.addNode("generate_outline", GenerateOutline);
+
+async function GenerateBlog(state){
+    const blog = await llm.invoke(`Generate a blog post about ${state.topic} with the outline ${state.outline}.`);      // get the topic and outline from state
+    state.blog = blog.content   // save the blog into the state
+    return state
+}
+
+graph.addNode("generate_blog", GenerateBlog);
+```
+4. connect the edges
+```js
+graph.addEdge(START, "generate_outline");
+graph.addEdge("generate_outline", "generate_blog");
+graph.addEdge("generate_blog", END);
+```
+mental model
+```
+START -> "generate_outline" -> "generate_blog" -> END
+```
+5. compile the graph into the workflow 
+```js
+const workflow = graph.compile();
+```
+6. invoke the compiled workflow
+```js
+const initialState = {
+    topic: "AI",
+};
+
+const res = await workflow.invoke(initialState);
+```
+
+### Complete code
+```js
+import "dotenv/config"
+import { StateGraph, START, END } from "@langchain/langgraph"
+import {z} from "zod"
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+
+const GraphState = z.object({
+    topic: z.string(),
+    outline: z.string(),
+    blog: z.string(),
+})
+
+const graph = new StateGraph(GraphState);
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+async function GenerateOutline(state){
+    const outline = await llm.invoke(`Generate an outline for a blog post about ${state.topic}.`);
+    state.outline = outline.content
+    return state
+}
+
+graph.addNode("generate_outline", GenerateOutline);
+
+async function GenerateBlog(state){
+    const blog = await llm.invoke(`Generate a blog post about ${state.topic} with the outline ${state.outline}.`);
+    state.blog = blog.content
+    return state
+}
+
+graph.addNode("generate_blog", GenerateBlog);
+
+graph.addEdge(START, "generate_outline");
+graph.addEdge("generate_outline", "generate_blog");
+graph.addEdge("generate_blog", END);
+
+const workflow = graph.compile();
+
+const initialState = {
+    topic: "AI",
+};
+
+const res = await workflow.invoke(initialState);
+
+console.log(res);
+```
+Output:
+> visit the [source code](./src/Sequential/PromptChaining.js) to see the complete output
+```js
+{
+  topic: 'AI',
+  outline: "Here's a comprehensive outline for a blog post about AI, designed to be informative, engaging, and accessible to a general audience.\n" +
+    '\n' +
+    '---\n' +
+    '\n' +
+    .
+    .
+    .
+    '*   Machine Learning\n' +
+    '*   Deep Learning',
+  blog: '## Unlocking the World of AI: Your Essential Guide\n' +
+    '\n' +
+    'Forget the menacing robots of sci-fi films for a moment. While those make for thrilling cinema, the reality of Artificial Intelligence (AI) is far more integrated into our daily lives – and often much more subtle. From the moment your smartphone suggests the next word in your text, to the personalized recommendations popping up on your streaming service, AI is silently shaping our world.\n' +
+    '\n' +
+    .
+    .
+    .
+    "### The Road Ahead: What's Next for AI?\n" +
+    '\n' +
+    "The journey of AI is far from over. We can expect AI to become even more seamlessly integrated into every facet of our lives, transforming industries and personal experiences in ways we're just beginning to imagine. Research into Artificial General Intelligence (AGI) will co"... 1746 more characters
+}
 ```
 
 [Go To Top](#content)
