@@ -251,6 +251,8 @@ LangGraph provide some inbuilt Nodes like:
 
 **Coding Implementation**
 ```js
+import { START, END } from "@langchain/langgraph";
+
 graph.addEdge(START,"calculate_bmi")
 graph.addEdge("calculate_bmi",END)
 ```
@@ -400,6 +402,8 @@ graph.addNode("generate_blog", GenerateBlog);
 ```
 4. connect the edges
 ```js
+import { START, END } from "@langchain/langgraph";
+
 graph.addEdge(START, "generate_outline");
 graph.addEdge("generate_outline", "generate_blog");
 graph.addEdge("generate_blog", END);
@@ -581,6 +585,8 @@ graph.addNode("generate_summary", generateSummary)
 ```
 3. Connect the edges
 ```js
+import { START, END } from "@langchain/langgraph";
+
 graph.addEdge(START, "calculate_Strick_Rate")
 graph.addEdge(START, "calculate_Boundary_Percentage")
 graph.addEdge(START, "calculate_balls_per_boundary")
@@ -786,6 +792,220 @@ Output:
     ' balls per boundary =  16.666666666666668'
 }
 ```
+
+[Go To Top](#content)
+
+---
+# Conditional Workflow
+A conditional workflow is a workflow where the next step depends on a condition (a decision or rule).
+> If something happens, do this; otherwise, do something else.
+
+think of it like using if / else logic to control the flow of steps.
+
+```
+           Start
+             |
+        Is condition true?
+           /     \
+        Yes       No
+        |          |
+     Action A   Action B
+```
+
+### Example: Roots of the quadratic equation
+To find the root of any given quadratic equation $ax^2 + bx + c = 0$ we first need to find its determinant 
+
+Formula of Determinant:
+
+$$Determinant =  b^2 - 4ac$$
+
+Formula of roots:
+
+$$Roots = \frac{-b \pm \sqrt{Determinant}}{2a}$$
+
+now based on this determinant value we have three possible solutions
+1. determinant > 0 -> 2 real solution
+
+$$r1 = \frac{-b + \sqrt{Determinant}}{2a}$$
+
+$$r2 = \frac{-b - \sqrt{Determinant}}{2a}$$
+
+2. determinant = 0 -> 1 repeated solution
+
+$$r = \frac{-b }{2a}_{--------}(Determinant = 0)$$
+
+3. determinant < 0 -> no real solution
+
+### Workflow
+```
+                      START
+                        │
+                        ▼
+            Show equation (ax^2 + bX + c = 0)
+                        │
+                        ▼
+               Compute D = b² - 4ac
+                        │
+           ┌────────────┼────────────┐
+           │            │            │
+        D > 0         D = 0         D < 0
+           │            │            │
+           ▼            ▼            ▼
+ Two real & distinct  Two real &    No real
+     roots           equal roots     roots
+  x₁, x₂ =           x = -b / 2a    (complex)
+ (-b ± √D)/2a           |
+        └───────────────┼───────────────┘
+                        ▼
+                       END
+```
+### How to implement Conditional routing
+this conditional routing is not depend on the node, it is totally depend on how edges are connected with each other
+
+we use a `.addConditionalEdges()` method to implement this conditional routing
+
+Syntax
+```
+.addConditionalEdges("starting_node", routing_function)
+```
+
+`routing_function` its a special type of function that accept the `state` as input and return the next node based on a condition
+
+Example:
+```js
+function routing_function(state){   // you can use any name you want
+    if(condition){
+        return "Node_A"
+    }else{
+        return "Node_B"
+    }
+}
+
+graph.addConditionalEdges("starting_node", routing_function)
+```
+mental model
+```
+           starting_node
+               |
+        Is condition true?
+           /     \
+        Yes       No
+        |          |
+     Node A     Node B
+```
+
+### Coding Implementation
+1. initialize a graph
+```js
+import { StateGraph } from "@langchain/langgraph";
+import { z } from "zod";
+
+const GraphState = z.object({
+    a:z.number(),
+    b:z.number(),
+    c:z.number(),
+
+    equation:z.string(),
+    discriminant:z.number(),
+    result:z.string(),
+});
+
+const graph = new StateGraph(GraphState);
+```
+2. declare a nodes
+```js
+function ShowEquation(state){
+    const equation = state.a + "x^2 + " + state.b + "x + " + state.c + " = 0";
+    return {equation:equation};
+}
+graph.addNode("show_equation", ShowEquation);
+
+function calculateDiscriminant(state){
+    const discriminant = (state.b * state.b) - (4 * state.a * state.c);
+    return {discriminant:discriminant};
+}
+graph.addNode("calculate_discriminant", calculateDiscriminant);
+
+function calculateRealRoots(state){
+    const root1 = (-state.b + Math.sqrt(state.discriminant)) / (2 * state.a);
+    const root2 = (-state.b - Math.sqrt(state.discriminant)) / (2 * state.a);
+    return {result:`Root1 = ${root1} \nRoot2 = ${root2}`};
+}
+graph.addNode("calculate_real_roots", calculateRealRoots);
+
+function calculateRepeatedRoot(state){
+    const root = -state.b / (2 * state.a);
+    return {result:`Root = ${root}`};
+}
+graph.addNode("calculate_repeated_root", calculateRepeatedRoot);
+
+function calculateImaginaryRoots(state){
+    return {result:"no real roots"};
+}
+graph.addNode("calculate_imaginary_roots", calculateImaginaryRoots);
+```
+3. connect the edges
+
+```js
+import { START, END } from "@langchain/langgraph";
+
+function condition(state){
+    if(state.discriminant > 0){
+        return "calculate_real_roots";
+    }else if(state.discriminant == 0){
+        return "calculate_repeated_root";
+    }else{
+        return "calculate_imaginary_roots";
+    }
+}
+
+graph.addEdge(START, "show_equation");
+graph.addEdge("show_equation", "calculate_discriminant");
+
+graph.addConditionalEdges("calculate_discriminant", condition);
+
+graph.addEdge("calculate_real_roots", END);
+graph.addEdge("calculate_repeated_root", END);
+graph.addEdge("calculate_imaginary_roots", END);
+```
+Mental model
+```
+                      START
+                        │
+                        ▼
+            Show equation (ax^2 + bX + c = 0)
+                        │
+                        ▼
+               Compute D = b² - 4ac
+                        │
+           ┌────────────┼────────────┐
+           │            │            │
+        D > 0         D = 0         D < 0
+           │            │            │
+           ▼            ▼            ▼
+       calculate_    calculate_    calculate_
+         real_        repeated_    imaginary_
+         roots          roots       roots
+           └─────────────┼────────────┘
+                         ▼
+                        END
+```
+4. compile the graph into a workflow
+```js
+const workflow = graph.compile();
+```
+5. invoke the workflow
+```js
+const initialState = {
+    a:4,
+    b:10,
+    c:6,
+};
+
+const finalState = await workflow.invoke(initialState);
+```
+### Complete code
+[click here](./src/Conditional.js) to visit the complete code and its output
 
 [Go To Top](#content)
 
