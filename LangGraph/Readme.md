@@ -5,6 +5,8 @@
 4. [Prompt Chaining / Sequential Workflow](#prompt-chaining-workflow)
 5. [Parallel Workflow](#parallel-workflow)
 6. [Conditional Workflow](#conditional-workflow)
+7. [Iterative Workflow](#iterative-workflow)
+8. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
 
 ---
 
@@ -1019,9 +1021,9 @@ Instead of trying to finish everything at once, you loop through the same steps 
 > Build → Test → Get feedback → Improve → Repeat
 
 ### Example:
-lets assume a system that generates a post using LLM, and uses another LLM to evaluate that LLM generated post
+lets assume a system that generates a post using LLM, and uses another LLM to evaluate that AI generated post
 
-second LLM we provide the feedback on the generated post, and based on that feedback we will decide whether to improve that post further or accept it 
+second LLM will provide the feedback on the generated post, and based on that feedback we will decide whether to improve that post further or accept it 
 
 ```
            START
@@ -1141,7 +1143,7 @@ graph.addEdge("generate_post", "evaluate_post");
 
 graph.addConditionalEdges("evaluate_post", condition);
 
-graph.addEdge("optimize_post", "evaluate_post");
+graph.addEdge("optimize_post", "evaluate_post");    // looping back
 ```
 mental Model
 
@@ -1178,6 +1180,441 @@ const res = await workflow.invoke(initialState);
 [click here](./src/Iterative.js) to see the final code with proper prompt engineering and its output
 
 
+
+[Go To Top](#content)
+
+---
+# Persistence, checkpoint & Fault Tolerance
+In original behavior of langGraph once we finish with the execution workflow it completely lost its state information, and if we re-execute the flow then we pass in new fresh state object 
+
+### Example:
+consider a chatbot workflow
+```
+START -> chat_node -> END
+```
+we pass our initial state as:
+```js
+const message = [
+    new HumanMessage("hey my name is Yadnesh")
+]
+```
+this message goes into LLM and it response accordingly and at the end we get our final state as:
+```js
+const message = [
+    new HumanMessage("hey my name is Yadnesh"),
+    new AIMessage("hey Yadnesh hwo can i help you?")
+]
+```
+after this your first execution is completed, but you want to continue with the chatting so you re-execute the flow second time 
+
+This time your new initial state will be:
+```js
+const message = [
+    new HumanMessage("What is my name?")
+]
+```
+since you pass the new fresh state second time it does not have any memory related to first its first execution therefor this time you get final state as follow:
+```js
+const message = [
+    new HumanMessage("What is my name?"),
+    new AIMessage("I don't have any personal info about you")
+]
+```
+> one solution could be to pass the state of first execution along with second initial state but to do that you have to keep your code in continuously running state if it stop you lost the data
+
+### Persistence
+In persistence we solve this issue by storing the state of first execution into a external data storage
+
+Persistence in LangGraph is a ability to save and restore the state of a workflow over time
+
+Here we save the state of the previous execution into a external database then fetch it whenever we want to start next execution
+
+In previous example when we get the final state of the first execution:
+```js
+const message = [
+    new HumanMessage("hey my name is Yadnesh"),
+    new AIMessage("hey Yadnesh hwo can i help you?")
+]
+```
+we save it into the database, and when we about to start with our second execution we can fetch this info from the database and add it into the new initial state:
+```js
+const message = [
+    new HumanMessage("hey my name is Yadnesh"), // from DB
+    new AIMessage("hey Yadnesh hwo can i help you?"),   // from DB
+    new HumanMessage("What is my name?")
+]
+```
+now LLM can reply properly:
+```js
+const message = [
+    new HumanMessage("hey my name is Yadnesh"), 
+    new AIMessage("hey Yadnesh hwo can i help you?"),   
+    new HumanMessage("What is my name?"),
+    new AImessage("Your name is Yadnesh")
+]
+```
+> This is useful in features like resume chat, where user want to continue their 3 to 4 (or even more) days older chat 
+
+### Persistence also helps in checkPointing
+Checkpoint means saving the current state of a workflow at specific points so it can continue later from the same point.
+
+Checkpoint is usually use to save & pause you progress and resume it after some time
+
+This is possible because LangGraph save state during each intermediate step instead of directly saving the final state only 
+
+#### Example:
+Consider a flow
+```
+START -> Node A -> Node B -> END
+```
+- your execution start with Node `START` with some initial state
+- you came into the `Node A` update your state
+- once you update you also save this updated state into the database
+- `Node A's` execution is complete but `Node B` wants to delay it's execution because of some reason
+- Therefor you stop the execution of your program 
+- Since you already  save the result of `Node A` execution, you can directly start your execution from `Node B` instead of re-executing the whole flow
+- Therefor we can say that we have create a checkpoint at `Node A` and we can pause and re-execute the flow from this checkpoint 
+
+### Fault Tolerance
+This checkpoint behavior of langGraph also act as fault tolerance
+
+Fault tolerance means a system’s ability to keep working or recover automatically when something goes wrong.
+
+Consider a flow
+```
+START -> Node A -> Node B -> END
+```
+- you start with node `START` goes to `Node A` 
+- `Node A` successfully perform its execution and save its updated state into the database
+- Now its time for `Node B's` execution, but for some reason `Node B's` execution crash
+- In this scenario instead of going back and re-executing the flow from start, you just re-execute the `Node B` only, as we already have our progress save up till the `Node A` (checkpoint) into our database
+
+### CheckPointers in LangGraph
+CheckPointers in langGraph divide our workflow execution into a checkpoints, and during each checkpoint it save our state value
+```
+       START          → checkpoint #1
+         ↓
+       Node A         → checkpoint #2
+    ┌────┴──────┐
+    ↓           ↓
+Node B        Node C  → checkpoint #3B & checkpoint #3C  
+    └────┬──────┘
+         ↓
+       Node D         → checkpoint #4
+         ↓
+        END           → checkpoint #5
+```
+#### In code
+
+```js
+import { MemorySaver  } from "@langchain/langgraph";    // stores the state data into RAM 
+
+const checkpointer = new MemorySaver();     // make sure to use same variable name i.e, 'checkpointer`
+
+const workflow = graph.compile({checkpointer}); // LangGraph will handle the checkPointers
+```
+### Thread in LangGraph
+A thread in LangGraph is a unique execution instance of a graph that holds its own state and checkpoints.
+
+
+Consider a flow
+```
+START -> Node A -> Node B -> END
+```
+now you invoke this workflow twice with a different initial state
+```js
+const state1 = {
+    steps: []
+}
+const state2 = {
+    steps : ["random value"]
+}
+
+workflow.invoke(state1)
+workflow.invoke(state2s)
+```
+Assume:
+- Node A appends `"A"` into `state.steps`
+- Node B appends `"B"` into `state.steps`
+
+#### Invocation 1 (Thread-1)
+```
+START
+  ↓
+Node A → steps = ["A"]
+  ↓
+Node B → steps = ["A", "B"]
+  ↓
+END
+```
+#### Invocation 2 (Thread-2)
+```
+START
+  ↓
+Node A → steps = ["random value", "A"]
+  ↓
+Node B → steps = ["random value", "A", "B"]
+  ↓
+END
+```
+#### Thread IDs
+we use `thread_id` to differentiate between different threads
+
+Therefor if i want to re-execute my `Thread-2` i use `Thread-2` id to fetch it's state value and re-execute it
+
+#### In Code
+```js
+const config = { configurable: { thread_id: "1" } };    // use any thread_id you want
+
+await workflow.invoke(initialState, config);
+
+const state = await workflow.getState(config);  // return the final save state data
+
+const stateHistoryGenerator = workflow.getStateHistory(config)  // Generator That generate the intermediate state data 
+```
+### Coding Example 1: State Storage
+```js
+import { StateGraph, START, END, MemorySaver } from "@langchain/langgraph";
+import { z } from "zod";
+
+const schema = z.object({
+    Steps: z.array(z.string()),
+});
+
+const checkpointer = new MemorySaver(); // using in memory storage that store state data in RAM
+
+const graph = new StateGraph(schema);
+
+function NodeA(state) {
+    state.Steps.push("NodeA");
+    return state;
+}
+
+function NodeB(state) {
+    state.Steps.push("NodeB");
+    return state;
+}
+
+graph.addNode("NodeA", NodeA);
+graph.addNode("NodeB", NodeB);
+
+graph.addEdge(START, "NodeA");
+graph.addEdge("NodeA", "NodeB");
+graph.addEdge("NodeB", END);
+
+const workflow = graph.compile({ checkpointer });
+
+const config = { configurable: { thread_id: "1" } };    // declaring thread_id = 1
+
+const initialState = {
+    Steps: [],
+};
+
+await workflow.invoke(initialState, config);    // running the workflow for threat_id = 1
+
+console.log(await workflow.getState(config));   // return the stored state data
+
+const stateHistory = workflow.getStateHistory(config) // generator
+
+console.log(await stateHistory.next()); // state data before END node
+console.log(await stateHistory.next()); // state data before NodeB node
+console.log(await stateHistory.next()); // state data before NodeA node
+console.log(await stateHistory.next()); // state data before START node
+console.log(await stateHistory.next()); // end of generator
+```
+output:
+```js
+{
+  values: { Steps: [ 'NodeA', 'NodeB' ] },
+  next: [],
+  tasks: [],
+  metadata: { source: 'loop', step: 2, parents: {}, thread_id: '1' },
+  config: {
+    configurable: {
+      thread_id: '1',
+      checkpoint_id: '1f0de61a-2c0e-6570-8002-6adfc15bde3f',
+      checkpoint_ns: ''
+    }
+  },
+  createdAt: '2025-12-21T11:38:57.223Z',
+  parentConfig: {
+    configurable: {
+      thread_id: '1',
+      checkpoint_ns: '',
+      checkpoint_id: '1f0de61a-2c07-6040-8001-5276f72a9140'
+    }
+  }
+}
+{
+  value: {
+    values: { Steps: [Array] },
+    next: [],
+    tasks: [],
+    metadata: { source: 'loop', step: 2, parents: {}, thread_id: '1' },
+    config: { configurable: [Object] },
+    createdAt: '2025-12-21T11:38:57.223Z',
+    parentConfig: { configurable: [Object] }
+  },
+  done: false
+}
+{
+  value: {
+    values: { Steps: [Array] },
+    next: [ 'NodeB' ],
+    tasks: [ [Object] ],
+    metadata: { source: 'loop', step: 1, parents: {}, thread_id: '1' },
+    config: { configurable: [Object] },
+    createdAt: '2025-12-21T11:38:57.220Z',
+    parentConfig: { configurable: [Object] }
+  },
+  done: false
+}
+{
+  value: {
+    values: { Steps: [] },
+    next: [ 'NodeA' ],
+    tasks: [ [Object] ],
+    metadata: { source: 'loop', step: 0, parents: {}, thread_id: '1' },
+    config: { configurable: [Object] },
+    createdAt: '2025-12-21T11:38:57.212Z',
+    parentConfig: { configurable: [Object] }
+  },
+  done: false
+}
+{
+  value: {
+    values: {},
+    next: [ '__start__' ],
+    tasks: [ [Object] ],
+    metadata: { source: 'input', step: -1, parents: {}, thread_id: '1' },
+    config: { configurable: [Object] },
+    createdAt: '2025-12-21T11:38:57.200Z',
+    parentConfig: undefined
+  },
+  done: false
+}
+{ value: undefined, done: true }
+```
+
+### Coding Example 2: Fault Tolerance 
+consider  workflow:
+```
+START -> Node A -> Node B -> Node C -> END
+``` 
+in our example we have simulate `Node B's` crashing as follows
+```js
+let attempt = 0;
+async function NodeB(state) {
+    if(attempt < 2) {
+        attempt++;
+        throw new Error("NodeB failed");
+    }
+    console.log("node B done");
+    return {nodeB: true};
+}
+```
+above code snippet will make the `Node B` crash twice before running successfully
+
+therefor to see complete execution of the workflow we need to execute it three time
+- first 2 will throw error at `Node B`
+- Third time it will run successfully
+
+to handle that error safely we use try-catch
+```js
+try {
+    await workflow.invoke(initialState, config);    // will throw error
+} catch (error) {
+    console.error(error.message);
+}
+
+try {
+    await workflow.invoke(undefined, config);   // will throw error
+} catch (error) {
+    console.error(error.message);
+}
+
+await workflow.invoke(undefined, config);   // run successfully
+```
+make sure to pass `undefined` as state input to so it can resume its execution from the last finish state data
+
+#### Code
+```js
+import { StateGraph, START, END, MemorySaver } from "@langchain/langgraph";
+import { z } from "zod";
+
+const schema = z.object({
+    nodeA: z.boolean().default(false),
+    nodeB: z.boolean().default(false),
+    nodeC: z.boolean().default(false),
+});
+
+const checkpointer = new MemorySaver();
+
+const graph = new StateGraph(schema);
+
+function NodeA(state) {
+    console.log("node A done");
+    return { nodeA: true };
+}
+
+let attempt = 0;
+async function NodeB(state) {
+    if (attempt < 2) {
+        attempt++;
+        throw new Error("NodeB failed");
+    }
+    console.log("node B done");
+    return { nodeB: true };
+}
+
+function NodeC(state) {
+    console.log("node C done");
+    return { nodeC: true };
+}
+
+graph.addNode("NodeA", NodeA);
+graph.addNode("NodeB", NodeB);
+graph.addNode("NodeC", NodeC);
+
+graph.addEdge(START, "NodeA");
+graph.addEdge("NodeA", "NodeB");
+graph.addEdge("NodeB", "NodeC");
+graph.addEdge("NodeC", END);
+
+const workflow = graph.compile({ checkpointer });
+
+const initialState = {
+    nodeA: false,
+    nodeB: false,
+    nodeC: false,
+};
+
+const config = {
+    configurable: {
+        thread_id: "1",
+    },
+};
+
+try {
+    await workflow.invoke(initialState, config);
+} catch (error) {
+    console.error(error.message);
+}
+try {
+    await workflow.invoke(undefined, config);
+} catch (error) {
+    console.error(error.message);
+}
+await workflow.invoke(undefined, config);
+```
+output:
+```
+node A done
+NodeB failed
+NodeB failed
+node B done
+node C done
+```
 
 [Go To Top](#content)
 
