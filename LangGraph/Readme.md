@@ -8,6 +8,7 @@
 7. [Conditional Workflow](#conditional-workflow)
 8. [Iterative Workflow](#iterative-workflow)
 9. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
+10. [Sqlite CheckPointer](#sqlite-checkpointer)
 
 ---
 
@@ -802,17 +803,16 @@ Output:
 ---
 
 # Annotation
-In LangGraph, an Annotation is used to define and type the state of the graph and to control how values are stored, merged, and updated as the graph runs.
+In LangGraph, an Annotation is used to define the state of the graph and to control how values are stored, merged, and updated as the graph runs.
 
 Think of it like a typed state field with rules for how data flows between nodes.
 
 Annotation work alongside zod, therefor use zod fo declaring schema and Annotation for updating
 
-> although we can use zod to declare the schema of the graph but we can not control how they update
+> although we can use zod to declare and validate the schema of the graph but we can not control how they update
 
 
-### Example 1: Simple state (string)
-Single value → replaced on update
+#### Example 1: Simple state (string)
 ```js
 import { Annotation } from "@langchain/langgraph";
 
@@ -821,7 +821,7 @@ const state = Annotation.Root({
 })
 ```
 
-### Example 2: Combining with zod
+#### Example 2: Combining with zod
 ```js
 import { Annotation } from "@langchain/langgraph";
 import { z } from "zod"
@@ -835,7 +835,7 @@ const state = Annotation.Root({
 
 
 ### Problem 
-In the parallel workflow we saw the problem of of updating same state simultaneously through multiple nodes throws an error, to solve that error we we use partial update method
+In the parallel workflow we saw the problem of of updating same state simultaneously through multiple nodes throws an error, to solve that error we use partial update method
 
 But let's assume we have a list inside of state and we want to append the result of two node working parallelly into that list
 ```js
@@ -861,7 +861,7 @@ graph.addEdge(START, "NodeB");
 graph.addEdge("NodeB", END);
 graph.addEdge("NodeA", END);
 ```
-As you can see in above example event though we have use partial update method it still update same value, as a result it will through `InvalidUpdateError` error:
+As you can see in above example even though we have use partial update method it still update same value at the same time, as a result it will through `InvalidUpdateError` error:
 ```
 InvalidUpdateError: Invalid update for channel "list" with values [["NodeA"],["NodeB"]]: LastValue can only receive one value per step.
 ```
@@ -897,8 +897,8 @@ const messages = Annotation({
   default: () => [],
 });
 ```
-- `prev` → current state value
-- `next` → value returned by a node
+- `prev` → Old state value
+- `next` → value returned by a node 
 - Result → new state value
 
 Example:
@@ -963,7 +963,7 @@ LangGraph runs:
 state.list = reducer(state.list, ["NodeB"]);
 ```
 ### How Reducers solves the parallel workflow problem
-In the previous example we see that the problem is because of simultaneous rewriting of state variable through parallel executing nodes
+In the previous example we see that the problem is because of simultaneous rewriting of same state variable through parallel executing nodes
 
 Therefor to solve it instead of rewriting we have to updated them safely using reducers
 ```js
@@ -1973,6 +1973,42 @@ user: can you tell me my name
 Your name is Yadnesh! You just told me. 😊
 ```
 
+
+[Go To Top](#content)
+
+---
+# Sqlite CheckPointer
+`MemorySaver` save the state value inside the RAM which is not ideal for actual storage system, also when we pause our program then our RAM get empty and we lost all of our stored data
+
+Therefor it is not recommended to use `MemorySaver` in production application
+
+**SqliteSaver**: An implementation of LangGraph checkpointer that uses SQLite database
+>  Ideal for experimentation and local workflows, for production use `PostgresSaver`
+
+### Installation
+```bash
+npm i better-sqlite3 @langchain/langgraph-checkpoint-sqlite
+```
+- `@langchain/langgraph-checkpoint-sqlite` -> langGraph sqliteSaver
+- `better-sqlite3` -> sqlite database used by sqliteSaver
+
+### Code
+```js
+import Database from "better-sqlite3"; 
+import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
+
+const db = new Database("checkpoints.db");  // provide the path for your database file
+const checkpointer = new SqliteSaver(db);
+
+const workflow = graph.compile({ checkpointer });
+```
+this will create the file name `checkpoints.db` in root of your project to store the state data
+
+Whenever you perform:
+```js
+await workflow.getState(config)
+```
+it will return the data from this database
 
 [Go To Top](#content)
 
