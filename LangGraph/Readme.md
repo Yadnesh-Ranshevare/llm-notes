@@ -4,9 +4,10 @@
 3. [How to construct Graphs](#how-to-construct-graphs)
 4. [Prompt Chaining / Sequential Workflow](#prompt-chaining-workflow)
 5. [Parallel Workflow](#parallel-workflow)
-6. [Conditional Workflow](#conditional-workflow)
-7. [Iterative Workflow](#iterative-workflow)
-8. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
+6. [Annotation](#annotation)
+7. [Conditional Workflow](#conditional-workflow)
+8. [Iterative Workflow](#iterative-workflow)
+9. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
 
 ---
 
@@ -795,6 +796,204 @@ Output:
     ' balls per boundary =  16.666666666666668'
 }
 ```
+
+[Go To Top](#content)
+
+---
+
+# Annotation
+In LangGraph, an Annotation is used to define and type the state of the graph and to control how values are stored, merged, and updated as the graph runs.
+
+Think of it like a typed state field with rules for how data flows between nodes.
+
+Annotation work alongside zod, therefor use zod fo declaring schema and Annotation for updating
+
+> although we can use zod to declare the schema of the graph but we can not control how they update
+
+
+### Example 1: Simple state (string)
+Single value → replaced on update
+```js
+import { Annotation } from "@langchain/langgraph";
+
+const state = Annotation.Root({
+    userInput: Annotation(),
+})
+```
+
+### Example 2: Combining with zod
+```js
+import { Annotation } from "@langchain/langgraph";
+import { z } from "zod"
+
+const state = Annotation.Root({
+    userInput: Annotation({
+        schema: z.string()
+    }),
+})
+```
+
+
+### Problem 
+In the parallel workflow we saw the problem of of updating same state simultaneously through multiple nodes throws an error, to solve that error we we use partial update method
+
+But let's assume we have a list inside of state and we want to append the result of two node working parallelly into that list
+```js
+const schema = z.object({
+    list: z.array(z.string()),
+});
+
+const graph = new StateGraph(schema);
+
+function NodeA(state) {
+    return {list:["NodeA"]};    // update schema.list
+}
+
+function NodeB(state) {
+    return {list:["NodeB"]};    // update schema.list
+}
+
+graph.addNode("NodeA", NodeA);
+graph.addNode("NodeB", NodeB);
+
+graph.addEdge(START, "NodeA");
+graph.addEdge(START, "NodeB");
+graph.addEdge("NodeB", END);
+graph.addEdge("NodeA", END);
+```
+As you can see in above example event though we have use partial update method it still update same value, as a result it will through `InvalidUpdateError` error:
+```
+InvalidUpdateError: Invalid update for channel "list" with values [["NodeA"],["NodeB"]]: LastValue can only receive one value per step.
+```
+
+To solve this issue we can use Reducers
+
+### Reducers
+A reducer is just a function that decides how state should change when new data comes in.
+
+Without reducer (overwrite)
+```js
+let messages = [];
+messages = ["Hi"];
+messages = ["Hello"]; // ❌ old data lost
+```
+
+With reducer (append)
+```js
+const reducer = (prev, next) => prev.concat(next);
+
+let messages = [];
+messages = reducer(messages, ["Hi"]);
+messages = reducer(messages, ["Hello"]);
+
+console.log(messages);
+// ["Hi", "Hello"]
+```
+
+LangGraph reducer example
+```js
+const messages = Annotation({
+  reducer: (prev, next) => prev.concat(next),
+  default: () => [],
+});
+```
+- `prev` → current state value
+- `next` → value returned by a node
+- Result → new state value
+
+Example:
+```js
+console.log(state.message)  // ['message']
+
+state.message = ["new message"] // prev = ['message'] & next = ["new message"] & result = ['message', "new message"]
+```
+
+
+### How Reducer works In LangGraph
+lets take a sequential execution
+```
+START -> Node A -> Node B -> END
+```
+without reducer
+```js
+const schema = z.object({
+    list: z.array(z.string()),
+});
+
+const graph = new StateGraph(schema);
+
+function NodeA(state) {
+    return {list:["NodeA"]};   // update state -> list = ["NodeA"]
+}
+
+function NodeB(state) {
+    return {list:["NodeB"]};    // update state -> list = ["NodeB"] -> overwrite
+}
+```
+with reducer
+```js
+const schema = Annotation.Root({
+    list: Annotation({
+        schema: z.array(z.string()),
+        default: () => [],
+        reducer: (prev, next) => prev.concat(next), // reducer function that append the value into the list
+    }),
+})
+
+const graph = new StateGraph(schema);
+
+function NodeA(state) {
+    return {list:["NodeA"]};   // update state -> list = ["NodeA"]
+}
+
+function NodeB(state) {
+    return {list:["NodeB"]};    // update state -> list = ["NodeA", "NodeB"] -> Append
+}
+```
+
+
+Node returns partial update
+```js
+return {
+  list:["NodeB"],
+};
+```
+LangGraph runs:
+```js
+state.list = reducer(state.list, ["NodeB"]);
+```
+### How Reducers solves the parallel workflow problem
+In the previous example we see that the problem is because of simultaneous rewriting of state variable through parallel executing nodes
+
+Therefor to solve it instead of rewriting we have to updated them safely using reducers
+```js
+const schema = Annotation.Root({
+    list: Annotation({
+        schema: z.array(z.string()),
+        default: () => [],
+        reducer: (prev, next) => prev.concat(next), // reducer function that append the value into the list
+    }),
+})
+
+const graph = new StateGraph(schema);
+
+function NodeA(state) {
+    return {list:["NodeA"]};    // call the reducer to append "NodeA"
+}
+
+function NodeB(state) {
+    return {list:["NodeB"]};    // call the reducer to append "NodeB"
+}
+
+graph.addNode("NodeA", NodeA);
+graph.addNode("NodeB", NodeB);
+
+graph.addEdge(START, "NodeA");
+graph.addEdge(START, "NodeB");
+graph.addEdge("NodeB", END);
+graph.addEdge("NodeA", END);
+```
+This way you prevent rewriting the complete state variable by just appending the new value into original one
 
 [Go To Top](#content)
 
@@ -1615,6 +1814,165 @@ NodeB failed
 node B done
 node C done
 ```
+
+### Coding Example 3: ChatBot Workflow 
+through persistence we can make our chatbot remember chat history
+
+```js
+const GraphState = z.object({
+    message:z.array(z.instanceof(BaseMessage))  // BaseMessage = AIMessage OR HumanMessage OR ToolMessage, ect
+})
+
+while (true) {  // chatting continuously until user stops
+    let message = await rl.question("user: ");      // user message
+    let chatHistory = await workflow.getState(config);  // fetching the chat history
+
+    let state = { message: [] };
+
+    if (chatHistory.values.message) {
+        chatHistory.values.message.forEach((element) => {
+            state.message.push(element);    // appending the chat history into state object
+        });
+    }
+    state.message.push(new HumanMessage(message));  // appending the user message into the state
+    const res = await workflow.invoke(state, config);   // calling the LLM with new state object that has chat history and users new message
+    console.log(res.message[res.message.length - 1].content);
+}
+```
+The above code is kind of hard to understand and debug, therefor in such cases we can use [Annotation](#annotation)
+```js
+const GraphState = Annotation.Root({
+    message: Annotation({
+        default: () => [],
+        reducer: (prev, next) => prev.concat(next),
+    }),
+});
+
+while (true) {
+    let message = await rl.question("user: ");
+    const res = await workflow.invoke({ message: [new HumanMessage(message)] }, config);
+    console.log(res.message[res.message.length - 1].content);
+}
+```
+in above code even though we are passing initial state hardcoded. But since we have used `checkPointers` and `thread_id` langGraph will treat it as partial update, and just append the user new message in `state.message` while keeping the chat history stored
+
+#### Code without Annotation reducer
+```js
+import { StateGraph, START, END } from "@langchain/langgraph";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { MemorySaver } from "@langchain/langgraph";
+import readline from "readline/promises";
+import { stdin as input, stdout as output } from "process";
+import "dotenv/config";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const checkpointer = new MemorySaver();
+
+const GraphState = z.object({
+    message:z.array(z.instanceof(BaseMessage))
+})
+
+const graph = new StateGraph(GraphState);
+
+async function ChatBot(state) {
+    const response = await llm.invoke(state.message);
+    return {
+        message: [...state.message, response],
+    };
+}
+
+graph.addNode("ChatBot", ChatBot);
+graph.addEdge(START, "ChatBot");
+graph.addEdge("ChatBot", END);
+
+const workflow = graph.compile({ checkpointer });
+
+const config = { configurable: { thread_id: "1" } };
+
+const rl = readline.createInterface({ input, output });
+
+while (true) {
+    let message = await rl.question("user: ");
+    let chatHistory = await workflow.getState(config);
+
+    let state = { message: [] };
+
+    if (chatHistory.values.message) {
+        chatHistory.values.message.forEach((element) => {
+            state.message.push(element);
+        });
+    }
+    state.message.push(new HumanMessage(message));
+    const res = await workflow.invoke(state, config);
+    console.log(res.message[res.message.length - 1].content);
+}
+```
+#### Code with Annotation Reducer
+```js
+import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { MemorySaver } from "@langchain/langgraph";
+import readline from "readline/promises";
+import { stdin as input, stdout as output } from "process";
+import "dotenv/config";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const checkpointer = new MemorySaver();
+
+const GraphState = Annotation.Root({
+    message: Annotation({
+        default: () => [],
+        reducer: (prev, next) => prev.concat(next),
+    }),
+});
+
+const graph = new StateGraph(GraphState);
+
+async function ChatBot(state) {
+    const response = await llm.invoke(state.message);
+    return {
+        message: [response],
+    };
+}
+
+graph.addNode("ChatBot", ChatBot);
+graph.addEdge(START, "ChatBot");
+graph.addEdge("ChatBot", END);
+
+const workflow = graph.compile({ checkpointer });
+
+const config = { configurable: { thread_id: "1" } };
+
+const rl = readline.createInterface({ input, output });
+
+while (true) {
+    let message = await rl.question("user: ");
+    const res = await workflow.invoke({ message: [new HumanMessage(message)] }, config);
+    console.log(res.message[res.message.length - 1].content);
+}
+```
+#### output in both cases:
+```
+user: hey im yadnesh
+Hi Yadnesh! Nice to meet you.
+
+I'm an AI assistant. How can I help you today?
+user: can you tell me my name
+Your name is Yadnesh! You just told me. 😊
+```
+
 
 [Go To Top](#content)
 
