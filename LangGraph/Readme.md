@@ -9,6 +9,7 @@
 8. [Iterative Workflow](#iterative-workflow)
 9. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
 10. [Sqlite CheckPointer](#sqlite-checkpointer)
+11. [Tools/ToolNode](#toolstoolnode)
 
 ---
 
@@ -2009,6 +2010,211 @@ Whenever you perform:
 await workflow.getState(config)
 ```
 it will return the data from this database
+
+[Go To Top](#content)
+
+---
+# Tools/ToolNode
+A ToolNode is a special LangGraph node whose only job is to execute tools that the LLM asks for.
+
+>In langgraph we use ToolNode to execute the tool 
+
+- Normally in langgraph you'd write a node function yourself, it takes in state and return state
+- A ToolNode is a prebuilt node that knows how to handle a list of langchain tools
+- its job is to listen for tool calls from LLM and automatically route the request to the correct tool, then pass the output back into the graph
+
+### Tools_condition:
+tools_condition is a prebuilt conditional edged function that helps your graph decide,\
+"Should the flow go to ToolNode next, or back to the LLM"
+
+### Coding Implementation
+1. Create the Array of tools
+```js
+const tools = [add, subtract, multiply, divide];    // each value in this array is a Langchain tool
+```
+2. initiate a LLM and bind this tool with it
+```js
+import {ChatGoogleGenerativeAI} from "@langchain/google-genai";
+import "dotenv/config";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const llm_with_tool = llm.bindTools(tools);
+```
+3. Initiate a Graph
+> make sure that it has `messages` parameter with is a type of `BaseMessage`
+```js
+import { BaseMessage } from "@langchain/core/messages";
+
+const graphState = Annotation.Root({
+    messages: Annotation({
+        schema: z.array(z.instanceof(BaseMessage)),
+        default: () => [],
+        reducer: (prev, next) => prev.concat(next),
+    })
+});
+
+const graph = new StateGraph(graphState);
+```
+make sure to keep the spelling for `messages` same as langgraph internally use it like `state.messages` and we cannot change it unless we change the source code
+
+lets assume you put `mess` instead `messages` then\
+The error you'll get is like:
+``` 
+const message = Array.isArray(state) ? state[state.length - 1] : state.messages[state.messages.length - 1];
+                                                                                               ^
+TypeError: Cannot read properties of undefined (reading 'length')
+```
+as inside your state there is no `messages` parameter cause we have use `mess`
+> This is because of langGraph tool_condition internal logic
+
+4. create a ToolNode
+```js
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+
+const toolNode = new ToolNode(tools);   // make sure to pass the array of tools from step 1
+```
+5. add Nodes
+```js
+graph.addNode("agent", chatNode);
+graph.addNode("tools", toolNode);   // ToolNode created in step 4
+```
+6. connect the nodes by edges
+```js
+import { toolsCondition } from "@langchain/langgraph/prebuilt";
+
+graph.addEdge(START, "agent");
+graph.addConditionalEdges("agent", toolsCondition);
+```
+`toolsCondition` is a special type of inbuilt routing function that decide whether to pass the workflow to `ToolNode` or `END` 
+
+my Flow
+```
+                   ┌─────> "tools" ─────┐
+START ─> "agent" ──|                    |───> END 
+                   └────────────────────┘
+```
+
+> The error and `messages` spelling restriction is because of this `toolCondition` internal logic
+
+if you want to pass your `ToolMessage` back to LLM then:
+```js
+import { toolsCondition } from "@langchain/langgraph/prebuilt";
+
+graph.addEdge(START, "agent");
+graph.addConditionalEdges("agent", toolsCondition);
+graph.addEdge("tools", "agent")
+```
+your Flow
+``` 
+            ┌───────────────┐
+            ▼      ┌─────> "tools" 
+START ─> "agent" ──|                   
+                   └──────> END 
+```
+>There is no need to explicitly add `"agent"` to `"END"` edge as `toolsCondition` will handle it
+
+7. invoke the graph
+```js
+const workflow = graph.compile();
+
+const initialState = {
+    messages: [new HumanMessage("What is 2 + 2?")],
+};
+
+const res = await workflow.invoke(initialState);
+console.log(res);
+```
+
+### Complete Code
+> [Click Here](./src/ToolNode.js) to check out complete code
+```js
+import { z } from "zod";
+import { Annotation, START } from "@langchain/langgraph";
+import { StateGraph } from "@langchain/langgraph";
+import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import {add, subtract, multiply, divide } from "./tools"    // visit complete code to check code related to tools
+import llm from"./llm"
+
+const tools = [add, subtract, multiply, divide]; 
+
+const llm_with_tool = llm.bindTools(tools); 
+
+const graphState = Annotation.Root({
+    messages: Annotation({
+        schema: z.array(z.instanceof(BaseMessage)),
+        default: () => [],
+        reducer: (prev, next) => prev.concat(next),
+    }),
+});
+
+const graph = new StateGraph(graphState);
+
+const toolNode = new ToolNode(tools); 
+
+graph.addNode("tools", toolNode); 
+
+async function chatNode(state) {
+    const res = await llm_with_tool.invoke(state.messages);
+    return { messages: [res] };
+}
+
+graph.addNode("agent", chatNode);
+
+graph.addEdge(START, "agent");
+graph.addConditionalEdges("agent", toolsCondition);
+
+const workflow = graph.compile();
+
+const res = await workflow.invoke({messages: [new HumanMessage("What is 2 + 2?")]});
+console.log(res);
+```
+Output:
+
+```js
+{
+    messages:[
+        HumanMessage {
+            "content": "What is 2 + 2?",
+            "additional_kwargs": {},
+            "response_metadata": {}
+        },
+        AIMessage {
+            "content": [{...}],
+            "additional_kwargs": {...},
+            "response_metadata": {...}
+            "tool_calls": [
+                {
+                    "type": "tool_call",
+                    "id": "528b2b93-d8a9-44d5-9123-a2df6f54006a",
+                    "name": "add",
+                    "args": {
+                        "a": 2,
+                        "b": 2
+                    }
+                }
+            ],
+            "invalid_tool_calls": [],
+            "usage_metadata": {...}
+        },
+        ToolMessage {
+            "content": "4",
+            "name": "add",
+            "additional_kwargs": {},
+            "response_metadata": {},
+            "tool_call_id": "528b2b93-d8a9-44d5-9123-a2df6f54006a"
+        }
+    ]
+}
+```
+
+
+
+
 
 [Go To Top](#content)
 
