@@ -10,6 +10,7 @@
 9. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
 10. [Sqlite CheckPointer](#sqlite-checkpointer)
 11. [Tools/ToolNode](#toolstoolnode)
+12. [Human In The Loop (HITL)](#human-in-the-loop-hitl)
 
 ---
 
@@ -2214,6 +2215,396 @@ Output:
 
 
 
+
+
+[Go To Top](#content)
+
+---
+# Human In The Loop (HITL)
+HITL is a design approach in AI systems where a human actively participate at critical points of the AI workflow, either to supervise, approve, correct or guide the model's output
+
+Think of HITL as putting human "checkpoint" inside an AI pipeline so that important decision are not made autonomously by the model
+
+### HITL ensures
+- Accuracy
+- safety
+- Ethical Alignment
+- Better user experience
+
+### Common HITL pattern
+- Action Approval pattern: Approve or reject before execution
+- output review or edit pattern
+- Ambiguity clarification Pattern
+- Escalation Pattern: passing control to human if AI think he can't handle it
+
+> HITL uses [checkPointer](#persistence-checkpoint--fault-tolerance) to keep the track of workflow execution. Therefor make sure to implement it along with checkPointer
+
+### interrupt()
+`interrupt()` is a LangGraph feature that lets you pause the graph execution at a specific point and wait for human input before continuing.
+
+```
+AI Node
+   ↓
+interrupt("Need human approval")
+   ⏸️  ← execution stops here
+   👤  ← human responds
+   ▶️  ← execution resumes
+   ↓
+Next Node
+```
+Without interrupt:
+- AI must block execution (input())
+- Not scalable
+- Not usable in web apps
+
+With interrupt:
+- Execution pauses
+- State is saved
+- Human responds later
+- Execution resumes from same node
+
+#### In LangGraph
+
+```js
+import { interrupt } from "@langchain/langgraph";
+
+const decision = interrupt({data:"data of the interrupt you want to display to user"});
+```
+whenever you workflow execution will hit the `interrupt()` function it will stop that workflow, and send the interrupt data as response
+
+#### Example:
+consider a workflow:
+```
+STAT -> "interrupt_Node" -> END
+```
+`interrupt_Node` will do nothing and will just throw an interrupt
+```js
+import { Annotation, END, interrupt, START, StateGraph } from "@langchain/langgraph";
+import { z } from "zod";
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { MemorySaver } from "@langchain/langgraph";
+
+const schema = Annotation.Root({
+    message: Annotation({
+        schema: z.array(z.instanceof(BaseMessage)),
+        reducer: (prev, next) => prev.concat(next),
+        default: () => [],
+    }),
+});
+
+const graph = new StateGraph(schema);
+
+async function interrupt_Node(state) {
+    interrupt({ message: "Need human approval" });
+}
+
+graph.addNode("interrupt_Node", interrupt_Node);
+
+graph.addEdge(START, "interrupt_Node");
+graph.addEdge("interrupt_Node", END);
+
+const workflow = graph.compile({ checkpointer: new MemorySaver() });
+
+const config = { configurable: { thread_id: "1" } };
+
+const res = await workflow.invoke({ message: [new HumanMessage("hey")] }, config);
+console.log(res);
+console.log(res.__interrupt__);
+```
+Output:
+```js
+{
+  message: [
+    HumanMessage {
+      "content": "hey",
+      "additional_kwargs": {},
+      "response_metadata": {}
+    }
+  ],
+  __interrupt__: [ { id: '5cfdb2806ec369e3da51fd1b7e6c5a1a', value: [Object] } ]
+}
+[
+  {
+    id: '5cfdb2806ec369e3da51fd1b7e6c5a1a',
+    value: { message: 'Need human approval' }
+  }
+]
+```
+- `res.message` is the state data carried by the workflow and is saved by checkPointer
+- `res.__interrupt__` is the interrupt data
+
+### command()
+`command()` is used to send the human’s response back into a paused graph so it can continue execution.
+
+If `interrupt()` is pause & ask, then `command()` is resume & answer.
+```
+AI runs
+↓
+interrupt()   ← pauses, asks human
+⏸️
+👤 human responds
+↓
+command()     ← resumes graph with input
+↓
+AI continues
+```
+#### In LangGraph
+```js
+import { Command, interrupt } from "@langchain/langgraph";
+
+const userdata = interrupt({message:"Need human approval"});    
+
+await workflow.invoke(new Command({resume: userdata}), config);
+```
+in above code snippet whenever we hit `interrupt()` the workflow execution will pause, and after the execution is paused and we hit `.invoke(new Command({resume: userdata}), config)`  it will resume it by sending the userdata to respective interrupt
+
+#### Check out this code snippet:
+workflow:
+```
+STAT -> "ask_user" -> END
+```
+code
+```js
+async function ask_user(state) {
+    const userAns = interrupt({ message: "Say something" });
+    console.log(userAns);   // {approved: userMessage}
+}
+
+graph.addNode("ask_user", ask_user);
+
+graph.addEdge(START, "ask_user");
+graph.addEdge("ask_user", END);
+
+const workflow = graph.compile({ checkpointer: new MemorySaver() });
+
+const config = { configurable: { thread_id: "1" } };
+
+const res = await workflow.invoke({ message: [] }, config);
+
+const userMessage = "hello";
+const finalResult = await workflow.invoke(new Command({resume: {approved: userMessage}}), config);
+```
+from the above code snippet we can understand that whatever data we pass with `new Command({resume: {...}})` it will be available at it's respective interrupt
+
+### Example 1: Basic understanding
+
+consider a workflow:
+```
+STAT -> "ask_user" -> END
+```
+- at `ask_user` we have interrupt that will ask user to provide an input. 
+- whatever input user will provide we simply add that into our state and return the final state
+```js
+import { Command, END, interrupt, START, StateGraph } from "@langchain/langgraph";
+import { z } from "zod";
+import { MemorySaver } from "@langchain/langgraph";
+import readline from "readline/promises";
+import { stdin as input, stdout as output } from "process";
+
+const schema = z.object({
+    message: z.array(z.string),
+});
+
+const graph = new StateGraph(schema);
+
+async function ask_user(state) {
+    const userAns = interrupt({ message: "Say something" });
+    return { message: userAns.userInput };
+}
+
+graph.addNode("ask_user", ask_user);
+
+graph.addEdge(START, "ask_user");
+graph.addEdge("ask_user", END);
+
+const workflow = graph.compile({ checkpointer: new MemorySaver() });
+
+const config = { configurable: { thread_id: "1" } };
+
+const res = await workflow.invoke({ message: [] }, config);
+
+const rl = readline.createInterface({ input, output });
+
+const userInput = await rl.question(res.__interrupt__[0].value.message + "\n");
+
+const finalResult = await workflow.invoke(new Command({ resume: { userInput } }), config);
+console.log(finalResult);
+```
+output:
+```
+Say something
+hello
+{ message: 'hello' }
+```
+### Example 2: Approved based workflow
+We are building a stock management chatbot that can perform two main actions:
+1. Get stock price\
+→ The chatbot can fetch and show the current price of any stock.
+2. Buy stock\
+→ The chatbot can place a buy order for a stock.
+
+Although chatbot can fetch stock prices and buy stocks, but every purchase requires human approval to ensure safety.
+
+Why Human Approval is Needed
+- A human reviews the stock details
+- The human approves or rejects the purchase
+- Only after approval, the chatbot proceeds to buy the stock
+
+This ensures:
+- No accidental or risky purchases
+- Better control over financial decisions
+
+#### Workflow
+``` 
+            ┌───────────────┐        ┌─────> "get_stock_price"
+            ▼      ┌─────> "tools" ──|
+START ─> "agent" ──|                 └─────> "purchase_stock"        
+                   └──────> END 
+```
+
+#### Code walkthrough
+1. get Stock price tool
+```js
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+import "dotenv/config";
+
+async function getStockPrice({ symbol }) {
+    const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${process.env.ALPHAVANTAGE_API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data;
+}
+
+const stockPice = new DynamicStructuredTool({
+    name: "get_stock_price",
+    description: "use this tool to get stock price",
+    func: getStockPrice,
+    schema: z.object({
+        symbol: z.string(),
+    }),
+});
+```
+2. Buy stock tool (Its a dummy tool)
+```js
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+function purchaseStock({ symbol, quantity }) {
+    const approved = interrupt(`Approve buying ${quantity} shears of ${symbol} (y/n)`);
+    if (approved === "y") {
+        // payment gateway implementation
+        return {
+            status: 200,
+            message: "stock purchase successfully",
+            symbol,
+            quantity,
+        };
+    } else {
+        return {
+            status: 400,
+            message: "stock purchase failed",
+        };
+    }
+}
+
+const purchaseStockTool = new DynamicStructuredTool({
+    name: "purchase_stock",
+    description: "use this tool to purchase stock",
+    func: purchaseStock,
+    schema: z.object({
+        symbol: z.string(),
+        quantity: z.number(),
+    }),
+});
+```
+3. Initialize LLM with tools
+```js
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import "dotenv/config";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const llm_with_tool = llm.bindTools([stockPice, purchaseStockTool]);
+```
+4. Initialize a graph
+```js
+const graphState = Annotation.Root({
+    messages: Annotation({
+        schema: z.array(z.instanceof(BaseMessage)),
+        defaultValue: () => [],
+        reducer: (prev, next) => prev.concat(next),
+    }),
+});
+
+const graph = new StateGraph(graphState);
+```
+5. create chat node
+```js
+async function ChatNode(state) {
+    const res = await llm_with_tool.invoke(state.messages);
+    return { messages: [res] };
+}
+
+graph.addNode("chat_node", ChatNode);
+```
+6. create toolNode
+```js
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+
+const toolNode = new ToolNode([stockPice, purchaseStockTool]);
+
+graph.addNode("tools", toolNode);
+```
+7. connect them by edges:
+```js
+graph.addEdge(START, "chat_node");
+graph.addConditionalEdges("chat_node", toolsCondition);
+graph.addEdge("tools", "chat_node");
+```
+mental model
+``` 
+            ┌─────────────────────┐        
+            ▼          ┌─────> "tools" 
+START ─> "chat_node" ──|                         
+                       └──────> END 
+```
+8. invoke the workflow
+```js
+while (true) {  // user can communicate continuously
+    let message = await rl.question("user: ");
+    let res = await workflow.invoke({ messages: [new HumanMessage(message)] }, config);
+}
+```
+9. check of interrupt
+```js
+while (true) {
+    let message = await rl.question("user: ");
+    let res = await workflow.invoke({ messages: [new HumanMessage(message)] }, config);
+    if (res.__interrupt__) {
+        // interrupt occur
+    }
+    // interrupt does not occur
+}
+```
+10. take user input and complete the workflow
+```js
+while (true) {
+    let message = await rl.question("user: ");
+    let res = await workflow.invoke({ messages: [new HumanMessage(message)] }, config);
+    if (res.__interrupt__) {
+        const userInput = await rl.question(res.__interrupt__[0].value + " ");
+        res = await workflow.invoke(new Command({ resume: userInput }), config);
+    }
+    console.log(res.messages[res.messages.length - 1].content + "\n"); //response message
+}
+```
+
+#### Complete code
+[Click here](./src/HITL/StockManagement.js) to check out the complete code and its output
 
 
 [Go To Top](#content)
