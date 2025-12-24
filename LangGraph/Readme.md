@@ -11,6 +11,7 @@
 10. [Sqlite CheckPointer](#sqlite-checkpointer)
 11. [Tools/ToolNode](#toolstoolnode)
 12. [Human In The Loop (HITL)](#human-in-the-loop-hitl)
+13. [SubGraph](#subgraph)
 
 ---
 
@@ -2606,6 +2607,255 @@ while (true) {
 #### Complete code
 [Click here](./src/HITL/StockManagement.js) to check out the complete code and its output
 
+
+[Go To Top](#content)
+
+---
+# SubGraph
+A subgraph is langgraph is usually a graph that is embedded and execute as a node inside another graph
+
+> A subgraph in LangGraph is a reusable mini-workflow that runs as a single node inside a larger graph.
+### Why subgraphs are used
+1. Reusability – use the same logic in multiple graphs
+2. Readability – complex workflows become manageable
+3. Encapsulation – hide internal steps, expose only inputs/outputs
+4. Testing – test a subgraph independently
+
+### There are two ways to add subgraph into main graph
+1. **invoke subgraph from parent's node:**
+    -  subgraphs are called from inside a node in the parent graph
+    - Both parent and child graph will have separate state
+    - No direct connection between child and parent graph
+
+2. **add graph as a node:** 
+    - a subgraph is added directly as a node in the parent and shares state keys with the parent
+    - Both parent and child graph will have sheared state
+    - No direct connection between child and parent graph
+
+### Example 1: invoke subgraph from parent's node:
+consider a flow where user ask a question to a LLM and LLM response in english
+
+once we get the response we invoke subgraph, that take english response of and translate it into hindi
+
+therefor
+- parent graph: 
+```
+START -> "anser user query" -> "invoke translator subgraph" -> END
+```
+- child subgraph
+```
+START -> "translate input" -> END
+```
+
+#### Code:
+```js
+import { END, START, StateGraph } from "@langchain/langgraph";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import "dotenv/config";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const subgraphState = z.object({   
+    englishText: z.string(),
+    hindiText: z.string(),
+});
+
+const translateSubgraph = new StateGraph(subgraphState);
+
+async function translate(state) {
+    const messages = [
+        new SystemMessage("You are a translator, translate the given text to hindi and do not add anything extra"),
+        new HumanMessage(state.englishText),
+    ];
+    const rea = await llm.invoke(messages);
+    return { hindiText: rea.content };
+}
+
+translateSubgraph.addNode("translate", translate);
+
+translateSubgraph.addEdge(START, "translate");
+translateSubgraph.addEdge("translate", END);
+
+const translateGraphWOrkflow = translateSubgraph.compile();
+
+const parentGraphState = z.object({
+    question: z.string(),
+    englishText: z.string(),
+    hindiText: z.string(),
+});
+
+const parentGraph = new StateGraph(parentGraphState);
+
+async function ans(state) {
+    const messages = [
+        new SystemMessage("you are the helpful assistance, answer the given question in one sentence"),
+        new HumanMessage(state.question),
+    ];
+    const rea = await llm.invoke(messages);
+    return { englishText: rea.content };
+}
+
+async function translateNode(state) {
+    const res = await translateGraphWOrkflow.invoke({ englishText: state.englishText });    // invoke the translator subgraph
+    return { hindiText: res.hindiText };    // as we only want hindi text value
+}
+
+parentGraph.addNode("ans", ans);
+parentGraph.addNode("translate", translateNode);
+
+parentGraph.addEdge(START, "ans");
+parentGraph.addEdge("ans", "translate");
+parentGraph.addEdge("translate", END);
+
+const parentGraphWorkflow = parentGraph.compile();
+
+const initialState = { question: "what is the capital of india?" };
+const state = await parentGraphWorkflow.invoke(initialState);
+console.log(state);
+```
+output:
+```js
+{
+  question: 'what is the capital of india?',
+  englishText: 'The capital of India is New Delhi.',
+  hindiText: 'भारत की राजधानी नई दिल्ली है।'
+}
+```
+### Example 2: add subgraph as a node:
+let's take same example as previous one, but instead of invoking the subgraph through a node we'll pass entire subgraph as a node
+
+Workflow
+- parent graph: 
+```
+START -> "anser user query" -> "translator subgraph" -> END
+```
+- child subgraph
+```
+START -> "translate input" -> END
+```
+#### Code:
+
+
+```js
+import { END, START, StateGraph } from "@langchain/langgraph";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import "dotenv/config";
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+const parentGraphState = z.object({
+    question: z.string(),
+    englishText: z.string(),
+    hindiText: z.string(),
+});
+
+const translateSubgraph = new StateGraph(parentGraphState); // make sure to pass same state as parent graph
+
+async function translate(state) {
+    const messages = [
+        new SystemMessage("You are a translator, translate the given text to hindi and do not add anything extra"),
+        new HumanMessage(state.englishText),
+    ];
+    const rea = await llm.invoke(messages);
+    return { hindiText: rea.content };
+}
+
+translateSubgraph.addNode("translate", translate);
+
+translateSubgraph.addEdge(START, "translate");
+translateSubgraph.addEdge("translate", END);
+
+const translateGraphWOrkflow = translateSubgraph.compile();
+
+const parentGraph = new StateGraph(parentGraphState);
+
+async function ans(state) {
+    const messages = [
+        new SystemMessage("you are the helpful assistance, answer the given question in one sentence"),
+        new HumanMessage(state.question),
+    ];
+    const rea = await llm.invoke(messages);
+    return { englishText: rea.content };
+}
+
+parentGraph.addNode("ans", ans);
+parentGraph.addNode("translate", translateGraphWOrkflow);   // pass the child graph as node
+
+parentGraph.addEdge(START, "ans");
+parentGraph.addEdge("ans", "translate");
+parentGraph.addEdge("translate", END);
+
+const parentGraphWorkflow = parentGraph.compile();
+
+const initialState = { question: "what is the capital of india?" };
+const state = await parentGraphWorkflow.invoke(initialState);
+console.log(state);
+```
+output:
+```js
+{
+  question: 'what is the capital of india?',
+  englishText: 'The capital of India is New Delhi.',
+  hindiText: 'भारत की राजधानी नई दिल्ली है।'
+}
+```
+
+### Key differences
+
+#### 1. How subgraph is being invoke
+- in example 1 we have invoke the subgraph from node of a parent graph
+```js
+async function translateNode(state) {
+    const res = await translateGraphWOrkflow.invoke({ englishText: state.englishText });    // invoking the subgraph
+    return { hindiText: res.hindiText };
+}
+
+parentGraph.addNode("translate", translateNode);
+```
+- in example 2 we use subgraph as node for parent graph
+```js
+const translateGraphWOrkflow = translateSubgraph.compile();
+
+parentGraph.addNode("translate", translateGraphWOrkflow);
+```
+#### 2. State of the graph
+- in example 1 we have different state object for each graph
+```js
+const subgraphState = z.object({
+    englishText: z.string(),
+    hindiText: z.string(),
+});
+const translateSubgraph = new StateGraph(subgraphState);
+
+const parentGraphState = z.object({
+    question: z.string(),
+    englishText: z.string(),
+    hindiText: z.string(),
+});
+const parentGraph = new StateGraph(parentGraphState);
+```
+- in example 2 we have same state object for both of the graph
+```js
+const parentGraphState = z.object({
+    question: z.string(),
+    englishText: z.string(),
+    hindiText: z.string(),
+});
+
+const translateSubgraph = new StateGraph(parentGraphState);
+
+const parentGraph = new StateGraph(parentGraphState);
+```
 
 [Go To Top](#content)
 
