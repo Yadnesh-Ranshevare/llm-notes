@@ -7,11 +7,12 @@
 6. [Annotation](#annotation)
 7. [Conditional Workflow](#conditional-workflow)
 8. [Iterative Workflow](#iterative-workflow)
-9. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
-10. [Sqlite CheckPointer](#sqlite-checkpointer)
-11. [Tools/ToolNode](#toolstoolnode)
-12. [Human In The Loop (HITL)](#human-in-the-loop-hitl)
-13. [SubGraph](#subgraph)
+9. [Streaming](#streaming)
+10. [Persistence, checkpoint & Fault Tolerance](#persistence-checkpoint--fault-tolerance)
+11. [Sqlite CheckPointer](#sqlite-checkpointer)
+12. [Tools/ToolNode](#toolstoolnode)
+13. [Human In The Loop (HITL)](#human-in-the-loop-hitl)
+14. [SubGraph](#subgraph)
 
 ---
 
@@ -1383,6 +1384,178 @@ const res = await workflow.invoke(initialState);
 
 
 
+[Go To Top](#content)
+
+---
+# Streaming
+In LangGraph, streaming means you can get partial results from a running graph in real time instead of waiting for the whole graph run to finish.
+
+It lets your application react as work happens—like showing progress updates or streaming LLM tokens one by one—improving responsiveness and user experience.
+
+In LangGraph:
+```js
+graph.stream(inputs, { streamMode: "updates" })
+```
+Above line returns an async iterator (async generator) that yields incremental state updates as the graph executes
+
+### Streaming version
+```js
+for await (const update of graph.stream(inputs, { streamMode: "updates" })) {
+  console.log(update);
+}
+```
+Here, `update` is yielded step by step, not all at once.
+
+### Example
+Assume your graph has these nodes:
+1. fetchData
+2. analyzeData
+3. generateAnswer
+
+State shape
+```js
+{
+  data: null,
+  analysis: null,
+  answer: null
+}
+```
+What `graph.stream(..., "updates")` yields
+```js
+for await (const update of graph.stream(inputs, { streamMode: "updates" })) {
+  console.log(update);
+}
+```
+Output (step by step):
+```js
+// after fetchData node finishes
+{
+  fetchData: {
+    data: "raw user data"
+  }
+}
+
+// after analyzeData node finishes
+{
+  analyzeData: {
+    analysis: "important insights"
+  }
+}
+
+// after generateAnswer node finishes
+{
+  generateAnswer: {
+    answer: "final response"
+  }
+}
+```
+
+### What can be streamed / different streamMode
+LangGraph supports streaming different kinds of data from a running graph:
+#### 1. Workflow progress (`updates` / `values`)
+You get updates about state changes after each node runs (either just the changes or the full state)
+- `updates`: Only state changes after each node
+- `values`: Full state snapshot after each node
+#### 2. LLM tokens (`messages`)
+You can stream token-by-token text from a language model as it generates.
+
+
+#### 3. Custom updates (`custom`)
+Inside a node, you can emit your own progress info (like “fetched 10/100 records”).
+
+#### 4. Debug info (`debug`)
+Streams lots of internal execution details for debugging.
+
+
+### Complete Code Example
+```js
+import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
+import "dotenv/config";
+
+const graphState = Annotation.Root({
+    messages: Annotation({
+        schema: z.array(z.instanceof(BaseMessage)),
+        reducer: (prev, next) => prev.concat(next),
+        default: () => [],
+    }),
+});
+
+const graph = new StateGraph(graphState);
+
+const llm = new ChatGoogleGenerativeAI({
+    model: "models/gemini-2.5-flash",
+    apiKey: process.env.LLM_API_KEY,
+});
+
+async function chatNode(state) {
+    const res = await llm.invoke(state.messages);
+    return { messages: [res] };
+}
+
+graph.addNode("chat_node", chatNode);
+
+graph.addEdge(START, "chat_node");
+graph.addEdge("chat_node", END);
+
+const workflow = graph.compile();
+
+for await (const chunk of await workflow.stream({ messages: [new HumanMessage("explain langGraph in short")] }, { streamMode: "messages" })) {
+    console.log(JSON.stringify(chunk));
+}
+```
+Output:
+```
+[{"lc":1,"type":"constructor","id":["langchain_core","messages","AIMessageChunk"],"kwargs":{"content":"LangGraph is an extension of LangChain designed to build **stateful, multi-actor applications** using LLMs.\n\nThink of it as building a sophisticated **flowchart or state machine** for your AI.\n\nHere's the breakdown","tool_calls":[],"invalid_tool_calls":[],"tool_call_chunks":[],"additional_kwargs":{},"response_metadata":{},"id":"run-019b6b0a-7e41-7000-8000-0951217d5765"}},{"tags":[],"langgraph_step":1,"langgraph_node":"chat_node","langgraph_triggers":["branch:to:chat_node"],"langgraph_path":["__pregel_pull","chat_node"],"langgraph_checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","__pregel_task_id":"207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","ls_provider":"google_genai","ls_model_name":"gemini-2.5-flash","ls_model_type":"chat"}]
+[{"lc":1,"type":"constructor","id":["langchain_core","messages","AIMessageChunk"],"kwargs":{"content":":\n\n1.  **Graph Structure:** You define your application as a **graph** where:\n    *   **Nodes** are individual steps (e.g., call an LLM, use a tool, process data, make","tool_calls":[],"invalid_tool_calls":[],"tool_call_chunks":[],"additional_kwargs":{},"response_metadata":{},"id":"run-019b6b0a-7e41-7000-8000-0951217d5765"}},{"tags":[],"langgraph_step":1,"langgraph_node":"chat_node","langgraph_triggers":["branch:to:chat_node"],"langgraph_path":["__pregel_pull","chat_node"],"langgraph_checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","__pregel_task_id":"207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","ls_provider":"google_genai","ls_model_name":"gemini-2.5-flash","ls_model_type":"chat"}]
+[{"lc":1,"type":"constructor","id":["langchain_core","messages","AIMessageChunk"],"kwargs":{"content":" a decision).\n    *   **Edges** define the transitions between these nodes.\n2.  **State Management:** It maintains an **internal state** that evolves as the graph executes. This state is passed between nodes and can influence","tool_calls":[],"invalid_tool_calls":[],"tool_call_chunks":[],"additional_kwargs":{},"response_metadata":{},"id":"run-019b6b0a-7e41-7000-8000-0951217d5765"}},{"tags":[],"langgraph_step":1,"langgraph_node":"chat_node","langgraph_triggers":["branch:to:chat_node"],"langgraph_path":["__pregel_pull","chat_node"],"langgraph_checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","__pregel_task_id":"207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","ls_provider":"google_genai","ls_model_name":"gemini-2.5-flash","ls_model_type":"chat"}]
+[{"lc":1,"type":"constructor","id":["langchain_core","messages","AIMessageChunk"],"kwargs":{"content":" future transitions.\n3.  **Complex Workflows:** This stateful graph approach enables:\n    *   **Loops:** Repeating steps (e.g., retry until successful).\n    *   **Conditional Logic:** Branching based on previous","tool_calls":[],"invalid_tool_calls":[],"tool_call_chunks":[],"additional_kwargs":{},"response_metadata":{},"id":"run-019b6b0a-7e41-7000-8000-0951217d5765"}},{"tags":[],"langgraph_step":1,"langgraph_node":"chat_node","langgraph_triggers":["branch:to:chat_node"],"langgraph_path":["__pregel_pull","chat_node"],"langgraph_checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","__pregel_task_id":"207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","ls_provider":"google_genai","ls_model_name":"gemini-2.5-flash","ls_model_type":"chat"}]
+[{"lc":1,"type":"constructor","id":["langchain_core","messages","AIMessageChunk"],"kwargs":{"content":" results or the current state.\n    *   **Agents:** Building advanced agents that can deliberate, use tools, and interact over multiple turns, with explicit control over their thinking process.\n\nIn short, LangGraph provides a way to explicitly define and","tool_calls":[],"invalid_tool_calls":[],"tool_call_chunks":[],"additional_kwargs":{},"response_metadata":{},"id":"run-019b6b0a-7e41-7000-8000-0951217d5765"}},{"tags":[],"langgraph_step":1,"langgraph_node":"chat_node","langgraph_triggers":["branch:to:chat_node"],"langgraph_path":["__pregel_pull","chat_node"],"langgraph_checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","__pregel_task_id":"207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","ls_provider":"google_genai","ls_model_name":"gemini-2.5-flash","ls_model_type":"chat"}]
+[{"lc":1,"type":"constructor","id":["langchain_core","messages","AIMessageChunk"],"kwargs":{"content":" control the flow, memory, and decision-making logic of complex LLM applications, moving beyond simple chains to create robust, multi-step AI systems.","tool_calls":[],"invalid_tool_calls":[],"tool_call_chunks":[],"additional_kwargs":{},"response_metadata":{},"id":"run-019b6b0a-7e41-7000-8000-0951217d5765"}},{"tags":[],"langgraph_step":1,"langgraph_node":"chat_node","langgraph_triggers":["branch:to:chat_node"],"langgraph_path":["__pregel_pull","chat_node"],"langgraph_checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","__pregel_task_id":"207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","checkpoint_ns":"chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef","ls_provider":"google_genai","ls_model_name":"gemini-2.5-flash","ls_model_type":"chat"}]
+```
+Single output Instance
+```JSON
+[
+    {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+            "langchain_core",
+            "messages",
+            "AIMessageChunk"
+        ],
+        "kwargs": {
+            "content": "LangGraph is an extension of LangChain designed to build **stateful, multi-actor applications** using LLMs.\n\nThink of it as building a sophisticated **flowchart or state machine** for your AI.\n\nHere's the breakdown",
+            "tool_calls": [],
+            "invalid_tool_calls": [],
+            "tool_call_chunks": [],
+            "additional_kwargs": {},
+            "response_metadata": {},
+            "id": "run-019b6b0a-7e41-7000-8000-0951217d5765"
+        }
+    },
+    {
+        "tags": [],
+        "langgraph_step": 1,
+        "langgraph_node": "chat_node",
+        "langgraph_triggers": [
+            "branch:to:chat_node"
+        ],
+        "langgraph_path": [
+            "__pregel_pull",
+            "chat_node"
+        ],
+        "langgraph_checkpoint_ns": "chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef",
+        "__pregel_task_id": "207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef",
+        "checkpoint_ns": "chat_node:207bec68-eb3d-57d5-9e2f-c6d1c2ab09ef",
+        "ls_provider": "google_genai",
+        "ls_model_name": "gemini-2.5-flash",
+        "ls_model_type": "chat"
+    }
+]
+```
 [Go To Top](#content)
 
 ---
