@@ -23,6 +23,7 @@ Follow this roadmap to learn how modern AI systems are built:
 # Official Documentation
 - [LangChain](https://docs.langchain.com/oss/javascript/langchain/overview)
 - [LangGraph](https://docs.langchain.com/oss/javascript/langgraph/overview)
+- [MCP](https://modelcontextprotocol.io/docs/getting-started/intro)
 
 
 # Acknowledgements:
