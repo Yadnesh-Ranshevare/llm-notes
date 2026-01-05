@@ -7,6 +7,7 @@
         - [Data Layer with JSON-RPC](#1-data-layer)
         - [Transport layer](#2-transport-layer)
 4. [Lifecycle Management](#lifecycle-management)
+5. [ Creating MCP Server & MCP Inspector](#creating-mcp-server)
 
 ---
 
@@ -579,6 +580,333 @@ Example:
 }
 ```
 
+
+
+[Go To Top](#content)
+
+---
+# Creating MCP Server
+to create mcp server we need `@modelcontextprotocol/sdk` and `zod`
+```bash
+npm install @modelcontextprotocol/sdk zod
+```
+### 1. create the server object
+```js
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
+const server = new McpServer();
+```
+At the time of creating the `McpServer` you must pass the basic info about the server
+```js
+const server = new McpServer({
+    name: "my-mcp-server",
+    version: "1.0.0",
+    capabilities: {
+        tools: {},
+        resources: {},
+    },
+});
+```
+This object you pass here will be send to client as a response to `initialized` request in [initialization phase of lifecycle](#lifecycle-management)
+
+`capabilities`: 
+
+- this object contains the information about what are you server is capable of.
+- It accept `tools`, `prompts`, `resources` with empty object as it just say "i have tools" and not "what tool i have"
+
+#### Just for understanding
+when client makes a initialized request
+```json
+{
+  "method": "initialize"
+}
+```
+server respond with
+```json
+{
+  "capabilities": {},
+  "serverInfo": {
+    "name": "my-mcp-server",
+    "version": "1.0.0"
+  }
+}
+```
+Note: in response from server we have empty `capabilities` object as he have don't add any tools into our mcp server
+
+### 2. select which transport layer you want to use
+The [transport layer](#2-transport-layer) manages communication channels and authentication between clients and servers.
+
+As we are building local MCP server will be using `Stdio transport`
+```js
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
+const transport = new StdioServerTransport()
+await server.connect(transport)
+```
+
+> Note: for Streamable HTTP transport we have same code but we just need to setup an http server to handle request and response
+
+### 3. MCP Inspector
+Just like postmap MCP Inspector is a testing tool for MCP server, to connect this MCP Inspector with MCP server
+
+1. Install the MCP Inspector
+
+    ```bash
+    npm install -D @modelcontextprotocol/inspector
+    ```
+2. add a new script into your `package.json`
+
+    ```json
+    {
+        "scripts": {
+            "start": "node src/index.js",
+            "inspect":"npx @modelcontextprotocol/inspector src/index.js"
+        },
+    }
+    ``` 
+    Here `src/index.js` the path where we have initialize the MCP sever
+
+now whenever you will run command `npm run inspect` it open following window onto the browser
+
+<img src="../images/mcp-inspector.png" style="width:800px">
+
+At top left corner you can see the transport type. Select the transport type you initialize your server with, in our case we have STDIO
+
+Then click onto the connect button to connect the MCP server
+
+Once you connect:
+
+<img src="../images/mcp-inspector-connect.png" style="width:800px">
+
+- at the bottom of the sidebar we can see our MCP sever
+- At the top we have all the capabilities the server and client can offer to each other\
+example: inside tools we will see all the tools the server can offer
+- you can directly call any tool from here 
+- inside history, we have all the JSON-RPC request and their response
+    > as we send `initialize` request to connect with MCP server we see that inside the History section when we connect to server
+
+[Go To Top](#content)
+
+---
+# Tools in MCP Server
+Tools in an MCP server are executable functions that the server exposes, allowing an AI model to request real operations like reading data, calling services, or performing actions.
+
+### Syntax 1:
+```js
+.tool(
+    "tool_name", 
+    "tool_description", 
+    {
+        input_schema
+    }, 
+    async_function_to_call
+)
+```
+Example:
+```js
+const server = new McpServer({...})
+
+server.tool(
+    "add",
+    "Add two numbers",
+    {
+        a: z.number(),
+        b: z.number(),
+    },
+    async ({ a, b }) => {
+        return {
+            sum: a + b
+        };
+    }
+)
+```
+### Syntax 2:
+```js
+.registerTool(name, config, handler)
+```
+Example
+```js
+server.registerTool(
+    "add",
+    {
+        title: "Add two numbers",
+        description: "Add two numbers",
+        inputSchema: z.object({
+            a: z.number(),
+            b: z.number(),
+        })
+    },
+    async ({ a, b }) => {
+        return {
+            sum: a + b
+        };
+    }
+)
+```
+
+From MCP inspector
+- Request
+
+    ```json
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "add",
+        "arguments": {
+          "a": 10,
+          "b": 5
+        },
+        "_meta": {
+          "progressToken": 0
+        }
+      }
+    }
+    ```
+- Response
+
+    ```json
+    {
+      "content": [],
+      "value": 15
+    }
+    ```
+
+### How to use MCP inspector for Tool calling
+1. connect your MCP inspector with your MCP sever and go into the tool section from top navigation bar
+2. here click onto the list tool
+
+<img src="../images/tools-1.png" style="width:800px">
+
+3. Once you click list tool it will make `tools/list` request onto the server, and server will respond with all of his available tools,
+which you can see inside the tools section
+
+<img src="../images/tools-2.png" style="width:800px">
+
+4. Click onto the tool you want to call, then on the right side you'll see a form to provide an input and make `tools/call` request onto the server
+
+<img src="../images/tools-3.png" style="width:800px">
+
+### How to return tool response from MCP server
+To return a tool response in MCP, return a JSON object from the tool function — nothing else.
+
+> as MCP follow [JSON-RPC](#json-rpc) you must return some response
+
+#### Example:
+```js
+server.tool(
+    "demo",
+    "A demo tool",
+    {}, // no input
+    async () => {
+        return {success:true};
+    }
+);
+```
+request:
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "demo",
+    "arguments": {},
+    "_meta": {
+      "progressToken": 0
+    }
+  }
+}
+```
+response
+```json
+{
+  "content": [],
+  "success": true
+}
+```
+The content array exists because MCP uses one universal message format for everything it sends to a model.
+
+MCP is not just a tool system.\
+It is a messaging protocol between:
+- Model
+- MCP server
+- Clients
+
+So MCP enforces one shape for all messages:
+```js
+Message {
+  content: ContentBlock[]
+}
+```
+
+#### Why an array specifically?
+Because a single response can contain multiple things at once.
+Example:
+- Some text
+- A tool result
+- A file reference
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "Here is the result" },
+    {
+      "type": "tool_result",
+      "tool_name": "add",
+      "result": { "sum": 15 }
+    }
+  ]
+}
+```
+#### Analogy you already know (HTTP middleware)
+You write:
+```js
+res.json({ sum: 15 });
+```
+But internally:
+- Headers
+- Status
+- Body
+- Metadata
+
+exist even if you didn’t define them.
+
+content array is similar to this
+#### Example:
+```js
+server.tool(
+    "demo",
+    "A demo tool",
+    {}, // no input
+    async () => {
+        return {
+            content:[{type: "text", text: "Hello, from demo tool!"}]
+        };
+    }
+);
+```
+request:
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "demo",
+    "arguments": {},
+    "_meta": {
+      "progressToken": 0
+    }
+  }
+}
+```
+response
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello, from demo tool!"
+    }
+  ]
+}
+```
 
 
 [Go To Top](#content)
