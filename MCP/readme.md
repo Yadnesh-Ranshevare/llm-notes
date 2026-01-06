@@ -175,7 +175,7 @@ The key participants in the MCP architecture are:
 - **MCP Client:** A component that maintains a connection to an MCP server and obtains context from an MCP server for the MCP host to use
 - **MCP Server:** A program that provides context to MCP clients
 
-<img src="../images/mcp_architecture.png" style="width:600px">
+<img src="../images/mcp_architecture.png" style="width:600px"/>
 
 ## Primitives
 MCP primitives are the most important concept within MCP. They define what clients and servers can offer each other.
@@ -200,7 +200,7 @@ Each primitive type has associated methods for discovery (`*/list`), retrieval (
     - `prompts/list`: Client asks the server: "What prompts templates do you provide?"
     - `prompt/fetch`: Client fetches the specific prompt template
 
-<img src="../images/pimitives.png" style="width:800px">
+<img src="../images/pimitives.png" style="width:800px"/>
 
 MCP also defines primitives that clients can expose. These primitives allow MCP server authors to build richer interactions.
 - **Sampling**: 
@@ -670,7 +670,7 @@ Just like postmap MCP Inspector is a testing tool for MCP server, to connect thi
 
 now whenever you will run command `npm run inspect` it open following window onto the browser
 
-<img src="../images/mcp-inspector.png" style="width:800px">
+<img src="../images/mcp-inspector.png" style="width:800px"/>
 
 At top left corner you can see the transport type. Select the transport type you initialize your server with, in our case we have STDIO
 
@@ -678,7 +678,7 @@ Then click onto the connect button to connect the MCP server
 
 Once you connect:
 
-<img src="../images/mcp-inspector-connect.png" style="width:800px">
+<img src="../images/mcp-inspector-connect.png" style="width:800px"/>
 
 - at the bottom of the sidebar we can see our MCP sever
 - At the top we have all the capabilities the server and client can offer to each other\
@@ -777,16 +777,16 @@ From MCP inspector
 1. connect your MCP inspector with your MCP sever and go into the tool section from top navigation bar
 2. here click onto the list tool
 
-<img src="../images/tools-1.png" style="width:800px">
+<img src="../images/tools-1.png" style="width:800px"/>
 
 3. Once you click list tool it will make `tools/list` request onto the server, and server will respond with all of his available tools,
 which you can see inside the tools section
 
-<img src="../images/tools-2.png" style="width:800px">
+<img src="../images/tools-2.png" style="width:800px"/>
 
 4. Click onto the tool you want to call, then on the right side you'll see a form to provide an input and make `tools/call` request onto the server
 
-<img src="../images/tools-3.png" style="width:800px">
+<img src="../images/tools-3.png" style="width:800px"/>
 
 ### How to return tool response from MCP server
 To return a tool response in MCP, return a JSON object from the tool function — nothing else.
@@ -922,20 +922,20 @@ Connecting your local MCP server with LLM differs from model to modal
 
 for this tutorial we'll be seeing how to connect our local MCP server with github copilot inside VScode
 
-### 1. create your MCP server
+### Step 1. create your MCP server
 
-<img src="../images/mcp-connect.png" style="width:800px">
+<img src="../images/mcp-connect.png" style="width:800px"/>
 
-### 2. Run the server inside the VScode workspace
+### Step 2. Run the server inside the VScode workspace
 1. open VScode command prompt (press ctrl + Shift + p) and search for `MCP: Add Server`
 
-    <img src="../images/add-server-1.png" style="width:800px">
+    <img src="../images/add-server-1.png" style="width:800px"/>
 
 2. Choose your transport type, in our case as we are using local MCP server it will be `stdio`
     - STDIO for local MCP server
     - HTTP for remote MCP server
 
-    <img src="../images/add-server-2.png" style="width:800px">
+    <img src="../images/add-server-2.png" style="width:800px"/>
 
 3. provide the command to start the MCP server (to run the MCP server execute the `index.js` file from step 1)
 
@@ -948,22 +948,22 @@ for this tutorial we'll be seeing how to connect our local MCP server with githu
         }
     }
     ```
-    <img src="../images/add-server-3.png" style="width:800px">
+    <img src="../images/add-server-3.png" style="width:800px"/>
 
 4. Provide the name for you server
 
-    <img src="../images/add-server-4.png" style="width:800px">
+    <img src="../images/add-server-4.png" style="width:800px"/>
 
 5. Choose the workspace where the server will be available
     - Global: available throughout the VScode
     - Workspace: available only inside the working directory
 
-    <img src="../images/add-server-5.png" style="width:800px">
+    <img src="../images/add-server-5.png" style="width:800px"/>
 
-### 3. Check the server configuration
+### Step 3. Check the server configuration
 after step 2 is complete it will create a `.vscode/mcp.json` file at the root of your project
 
-<img src="../images/add-server-6.png" style="width:800px">
+<img src="../images/add-server-6.png" style="width:800px"/>
 
 Here:
 - `type` = transport type
@@ -1024,19 +1024,19 @@ in abode code `dev.debug.type = "node"` will log the node message inside our ser
 
 as you can see this are the JSON-RPC message shear between client and server during [initialization phase](#1-initialization-phase) (first 3) and capability discovery of [operation phase](#2-operation-phase) (last 2)
 
-### use github copilot to call this server
+### Step 4: use github copilot to call this server
 1. open the chat interface of github copilot inside vscode (press ctrl + alt + B)
 
-    <img src="../images/add-server-7.png" style="width:800px">
+    <img src="../images/add-server-7.png" style="width:800px"/>
 
 
 2. inside search bar type `#mcp.json` make sure this refers to `.vscode/mcp.json` file
 
-    <img src="../images/add-server-8.png" style="width:800px">
+    <img src="../images/add-server-8.png" style="width:800px"/>
 
     Or you can directly search your MCP server name
 
-    <img src="../images/add-server-9.png" style="width:800px">
+    <img src="../images/add-server-9.png" style="width:800px"/>
 
 ### Call the tool
 to call any tool you just have to pass in the query github copilot will automatically decide which tool to call 
