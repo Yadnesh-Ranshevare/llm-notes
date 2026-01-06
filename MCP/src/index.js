@@ -135,4 +135,28 @@ server.resource(
     }
 );
 
+
+
+server.prompt(
+    "example-prompt",
+    "example prompt",
+    {
+        name: z.string(),
+        age: z.number(),
+    },
+    async ({ name }) => {
+        return {
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: `hi ${name} your age is ${age}`,
+                    },
+                },
+            ],
+        };
+    }
+);
+
 await server.connect(new StdioServerTransport());
