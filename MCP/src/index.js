@@ -20,7 +20,7 @@ server.tool(
     },
     async ({ a, b }) => {
         return {
-            sum: a + b
+            content:[{type:"text", text:`ans is ${a-b}`}]
         };
     }
 );
@@ -37,11 +37,10 @@ server.registerTool(
     },
     async ({ a, b }) => {
         return {
-            sum: a + b
+            content:[{type:"text", text:`sum is ${a+b}`}]
         };
     }
 )
-
 
 await server.connect(new StdioServerTransport());
 

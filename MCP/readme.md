@@ -8,6 +8,8 @@
         - [Transport layer](#2-transport-layer)
 4. [Lifecycle Management](#lifecycle-management)
 5. [ Creating MCP Server & MCP Inspector](#creating-mcp-server)
+6. [Tools in MCP Server](#tools-in-mcp-server)
+7. [How to connect local MCP server with LLM](#how-to-connect-local-mcp-server-with-llm)
 
 ---
 
@@ -824,6 +826,8 @@ response
 ```
 The content array exists because MCP uses one universal message format for everything it sends to a model.
 
+> When you connect your MCP with LLM it read the response from this content array
+
 MCP is not just a tool system.\
 It is a messaging protocol between:
 - Model
@@ -908,6 +912,135 @@ response
 }
 ```
 
+
+[Go To Top](#content)
+
+---
+
+# How to connect local MCP server with LLM
+Connecting your local MCP server with LLM differs from model to modal
+
+for this tutorial we'll be seeing how to connect our local MCP server with github copilot inside VScode
+
+### 1. create your MCP server
+
+<img src="../images/mcp-connect.png" style="width:800px">
+
+### 2. Run the server inside the VScode workspace
+1. open VScode command prompt (press ctrl + Shift + p) and search for `MCP: Add Server`
+
+    <img src="../images/add-server-1.png" style="width:800px">
+
+2. Choose your transport type, in our case as we are using local MCP server it will be `stdio`
+    - STDIO for local MCP server
+    - HTTP for remote MCP server
+
+    <img src="../images/add-server-2.png" style="width:800px">
+
+3. provide the command to start the MCP server (to run the MCP server execute the `index.js` file from step 1)
+
+    you can run your MCP server using `package.json` script as will
+
+    ```json
+    {
+        "scripts": {
+            "start": "node src/index.js"
+        }
+    }
+    ```
+    <img src="../images/add-server-3.png" style="width:800px">
+
+4. Provide the name for you server
+
+    <img src="../images/add-server-4.png" style="width:800px">
+
+5. Choose the workspace where the server will be available
+    - Global: available throughout the VScode
+    - Workspace: available only inside the working directory
+
+    <img src="../images/add-server-5.png" style="width:800px">
+
+### 3. Check the server configuration
+after step 2 is complete it will create a `.vscode/mcp.json` file at the root of your project
+
+<img src="../images/add-server-6.png" style="width:800px">
+
+Here:
+- `type` = transport type
+- `command` + `args` = command to start your MCP server (`npm run start`)
+- you can manipulate `command` + `args` if command is incorrect
+
+    ```json
+    {
+    	"servers": {
+    		"my-MCP-server": {
+    			"type": "stdio",
+    			"command": "node",   
+    			"args": [
+    				"src/index.js"
+    			]
+    		}
+    	},
+    	"inputs": []
+    }
+    ```
+- in above example `command` + `args` = `node src/index.js`
+
+#### You can also add devolvement tools to make devolvement easy
+
+```json
+{
+	"servers": {
+		"my-MCP-server": {
+			"type": "stdio",
+			"command": "node",   
+			"args": [
+				"src/index.js"
+			],
+            "dev": {
+                "debug": {
+                    "type": "node"
+                }
+            }
+		}
+	},
+	"inputs": []
+}
+```
+in abode code `dev.debug.type = "node"` will log the node message inside our server
+
+#### Now as the configuration is complete click onto the restart to start the server
+ once you click restart and your server stat you'll see following logs
+
+ > this log is because of `dev.debug.type = "node"`
+
+ ```json
+ 2026-01-06 14:50:03.640 [info] [editor -> server] {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"roots":{"listChanged":true},"sampling":{},"elicitation":{"form":{},"url":{}},"tasks":{"list":{},"cancel":{},"requests":{"sampling":{"createMessage":{}},"elicitation":{"create":{}}}}},"clientInfo":{"name":"Visual Studio Code","version":"1.107.1"}}}
+ 2026-01-06 14:50:03.933 [info] [server -> editor] {"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"my-mcp-server","version":"1.0.0","capabilities":{"tools":{}}}},"jsonrpc":"2.0","id":1}
+2026-01-06 14:50:03.933 [info] [editor -> server] {"method":"notifications/initialized","jsonrpc":"2.0"}
+2026-01-06 14:50:03.934 [info] [editor -> server] {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+2026-01-06 14:50:03.939 [info] [server -> editor] {"result":{"tools":[{"name":"subtract","description":"subtract two numbers","inputSchema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"a":{"type":"number"},"b":{"type":"number"}},"required":["a","b"]},"execution":{"taskSupport":"forbidden"}},{"name":"add","title":"Add","description":"Add two numbers","inputSchema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"a":{"type":"number"},"b":{"type":"number"}},"required":["a","b"]},"execution":{"taskSupport":"forbidden"}}]},"jsonrpc":"2.0","id":2}
+```
+
+as you can see this are the JSON-RPC message shear between client and server during [initialization phase](#1-initialization-phase) (first 3) and capability discovery of [operation phase](#2-operation-phase) (last 2)
+
+### use github copilot to call this server
+1. open the chat interface of github copilot inside vscode (press ctrl + alt + B)
+
+    <img src="../images/add-server-7.png" style="width:800px">
+
+
+2. inside search bar type `#mcp.json` make sure this refers to `.vscode/mcp.json` file
+
+    <img src="../images/add-server-8.png" style="width:800px">
+
+    Or you can directly search your MCP server name
+
+    <img src="../images/add-server-9.png" style="width:800px">
+
+### Call the tool
+to call any tool you just have to pass in the query github copilot will automatically decide which tool to call 
+> your tool must return the response inside the content array as LLM can only read through the content Array
 
 [Go To Top](#content)
 
