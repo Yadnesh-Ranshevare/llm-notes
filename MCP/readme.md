@@ -10,6 +10,7 @@
 5. [ Creating MCP Server & MCP Inspector](#creating-mcp-server)
 6. [Tools in MCP Server](#tools-in-mcp-server)
 7. [How to connect local MCP server with LLM](#how-to-connect-local-mcp-server-with-llm)
+8. [Resources](#resources)
 
 ---
 
@@ -912,6 +913,36 @@ response
 }
 ```
 
+### How to handle Content array
+contents is a list of typed payloads that an MCP server sends back to the client / LLM.
+
+Each item in contents must be exactly one of these types:
+
+1. TextContent
+
+    ```js
+    {
+      type: "text",
+      text: "plain text or markdown"
+    }
+    ```
+2. BlobContent (JSON, files, binary)
+
+    ```js
+    {
+      type: "blob",
+      blob: "base64-encoded-data",
+      mimeType: "application/json"
+    }
+    ```
+
+
+Invalid content (common mistake)
+```js
+{ text: "hello" }           // missing type
+{ type: "text", blob: "x"} // wrong field
+{ type: "text", mimeType } // mimeType not allowed
+```
 
 [Go To Top](#content)
 
@@ -1041,6 +1072,286 @@ as you can see this are the JSON-RPC message shear between client and server dur
 ### Call the tool
 to call any tool you just have to pass in the query github copilot will automatically decide which tool to call 
 > your tool must return the response inside the content array as LLM can only read through the content Array
+
+[Go To Top](#content)
+
+---
+# Resources
+Resources are passive data sources that provide read-only access to information for context, such as file contents, database schemas, or API documentation.
+
+### syntax:
+```js
+server.resource(
+    name,
+    uri,
+    metadata,
+    handler
+);
+```
+### Example:
+```js
+server.resource(
+    "data",
+    "data://data",
+    {
+        description: "return the array of random number",
+        title: "random number",
+        mimeType: "application/json",
+    },
+    async (uri) => {
+        return {
+            contents: [
+                { 
+                    uri: uri.href, 
+                    text: JSON.stringify([1, 2, 3, 4, 5]), 
+                    mimeType: "application/json" 
+                }
+            ],
+        };
+    }
+);
+```
+- must return the data warped within `contents` block as resource return data to LLM or client and they can only read through this contents block directly
+- URI (Uniform Resource Identifier) is a string that uniquely identifies a resource.
+- `uri` must follow the actual `uri` syntax like `"a://b/c/d/..."` 
+- Resource is already typed by its URI. So MCP does not require `type`, and instead allows (and prefers) a `uri`.
+- `mimeType` (Multipurpose Internet Mail Extensions type) tells the client/LLM what kind of data this content is.
+
+Common main types
+| Main Type     | Meaning                   |
+| ------------- | ------------------------- |
+| `text`        | Human-readable text       |
+| `application` | Structured or binary data |
+| `image`       | Images                    |
+| `audio`       | Audio                     |
+| `video`       | Video                     |
+| `multipart`   | Mixed content             |
+
+
+#### Client request
+```json
+{
+  "method": "resources/read",
+  "params": {
+    "uri": "data://data"
+  }
+}
+```
+#### Server Response
+```json
+{
+  "contents": [
+    {
+      "uri": "data://data",
+      "mimeType": "application/json",
+      "text": "[1,2,3,4,5]"
+    }
+  ]
+}
+```
+### Resource Template
+A resource template in MCP is a pattern for resource URIs that can contain variables.
+
+#### example
+```
+"/notes/{id}"
+```
+- `/notes/{id}` → resource template
+- `{id}` → variable
+- Matches:
+    - `/notes/1`
+    - `/notes/42`
+    - `/notes/abc`
+
+#### Resource vs Resource Template
+| Concept           | Meaning                                              |
+| ----------------- | ---------------------------------------------------- |
+| Resource          | One concrete URI (`/notes/1`)                        |
+| Resource Template | Pattern that produces many resources (`/notes/{id}`) |
+
+
+#### Client request
+```json
+{
+  "method": "resources/templates/list",
+  "params": {}
+}
+```
+#### Server Response
+```json
+{
+  "resourceTemplates": [
+    {
+      "name": "resource template",
+      "title": "return number",
+      "uriTemplate": "data://{data}",
+      "description": "return the the number user input",
+      "mimeType": "application/json"
+    }
+  ]
+}
+````
+
+#### Code example
+```js
+server.resource(
+    "resource template",
+    new ResourceTemplate("data://{data}",{list:undefined}),
+    {
+        title: "return number",
+        description: "return the the number user input",
+        mimeType: "application/json",
+    },
+    async (uri, {data}) => {
+        return {
+            contents: [{ uri: uri.href, text: JSON.stringify(data), mimeType: "application/json" }],
+        };
+    }
+)
+```
+as you can see the code for resource template is same as resource declaration, we just make changes at 2 place only
+1. instead of uri we pass `ResourceTemplate` object
+2. at handler accept the dynamic resource variable `{data}`
+
+
+#### Client request
+```json
+{
+  "method": "resources/read",
+  "params": {
+    "uri": "data://1"
+  }
+}
+```
+#### Server Response
+```json
+{
+  "contents": [
+    {
+      "uri": "data://1",
+      "mimeType": "application/json",
+      "text": ""1""
+    }
+  ]
+}
+````
+
+### ResourceTemplate Object
+
+in above code we can see the following line
+```js
+new ResourceTemplate("data://{data}",{list:undefined}),
+```
+it is use to create a dynamic uri for your resource
+- `"data://{data}"` is a dynamic uri with dynamic variable `data`
+- `list` is a required argument even if it set as undefined
+- `list`: it is a callback function that, when implemented, returns all resources matching the template
+
+    Example
+    ```js
+    new ResourceTemplate("data://{data}", {
+        list: async (_extra) => {
+            const items = [
+                { id: "1", value: 10 },
+                { id: "2", value: 20 },
+            ];
+
+            return {
+                resources: items.map((item) => ({
+                    uri: `data://${item.id}`,
+                    name: item.id, // required
+                    title: `Item ${item.id}`, // optional
+                    description: `Value: ${item.value}`,
+                    mimeType: "application/json",
+                })),
+                // nextCursor: undefined,        // add this if you support pagination
+            };
+        },
+    })
+    ```
+    client request
+    ```json
+    {
+      "method": "resources/list",
+      "params": {}
+    }
+    ```
+    > client make `resources/list` and not `resources/templates/list`, i.e it is not listing the templates it listing the normal static resources
+
+    server response:
+    ```json
+    {
+      "resources": [
+        {
+          "name": "1",
+          "title": "Item 1",
+          "uri": "data://1",
+          "description": "Value: 10",
+          "mimeType": "application/json"
+        },
+        {
+          "name": "2",
+          "title": "Item 2",
+          "uri": "data://2",
+          "description": "Value: 20",
+          "mimeType": "application/json"
+        }
+      ]
+    }
+    ```
+
+#### Beside list it also accept the `complete` callback which is option one
+- The complete callbacks are per‑variable autocomplete functions for your URI template.
+- For each `{variable}` in the template, you can provide a function that returns suggested values as a string array (optionally async), which the client uses to offer completions.
+
+    Example
+    ```js
+    new ResourceTemplate("data://{data}", { 
+        list:undefined,  
+        complete: {
+            data: async (value) => {
+                if(value == "yes"){
+                    return ["op1", "op2"];
+                }
+            },
+        }
+    })
+    ```
+    User/client starts typing a URI like `data://yes`
+    - client request
+
+        ```json
+        {
+          "method": "completion/complete",
+          "params": {
+            "argument": {
+              "name": "data",
+              "value": "yes"
+            },
+            "ref": {
+              "type": "ref/resource",
+              "uri": "data://{data}"
+            },
+            "context": {
+              "arguments": {}
+            }
+          }
+        }
+        ```
+    - Server response
+
+        ```json
+        {
+          "completion": {
+            "values": [
+              "op1",
+              "op2"
+            ],
+            "total": 2,
+            "hasMore": false
+          }
+        }
+        ```
 
 [Go To Top](#content)
 
