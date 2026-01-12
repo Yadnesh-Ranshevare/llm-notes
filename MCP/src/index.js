@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CreateMessageRequestParamsSchema, CreateMessageRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 const server = new McpServer({
@@ -135,8 +136,6 @@ server.resource(
     }
 );
 
-
-
 server.prompt(
     "example-prompt",
     "example prompt",
@@ -158,5 +157,34 @@ server.prompt(
         };
     }
 );
+
+// // sampling
+
+// server.tool(
+//     "sampling",
+//     "sampling example",
+//     {
+//         name: z.string(),
+//         age: z.number(),
+//     },
+//     async ({ name, age }) => {
+//         const res = await server.server.request({
+//             messages: [
+//                 {
+//                     role: "user",
+//                     content: {
+//                         type: "text",
+//                         text: "generate a fake user",
+//                     },
+//                 },
+//             ],
+//             maxTokens: 100,
+//         });
+
+//         return {
+//             content: [{ type: "text", text: JSON.stringify(res.content) }],
+//         };
+//     }
+// );
 
 await server.connect(new StdioServerTransport());
