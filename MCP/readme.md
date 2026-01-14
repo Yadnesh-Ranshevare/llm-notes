@@ -12,6 +12,7 @@
 7. [Resources](#resources)
 8. [Prompt](#prompt)
 9. [How to connect local MCP server with LLM](#how-to-connect-local-mcp-server-with-llm)
+10. [MCP Client](#mcp-client)
 
 ---
 
@@ -1479,6 +1480,200 @@ in our case name of MCP server is `my-MCP-server`
 3. once you hit the enter after providing input you will see prompt appear in input box of github copilot
 
     <img src="../images/add-prompt-3.png" style="width:800px"/>
+
+
+[Go To Top](#content)
+
+---
+# MCP Client
+An MCP client is a program or application that connects to an MCP server to give an AI model access to external tools, data, or services in a standardized way.
+
+### To create MCP client
+1. initialize a MCP client,same as [MCP server](#creating-mcp-server)
+
+    ```js
+    import {Client} from "@modelcontextprotocol/sdk/client"
+
+    const client = new Client(
+        {
+            name: "my-client",
+            version: "1.0.0",
+        },
+        {
+            capabilities:{
+                sampling:{}
+            }
+        }
+    )
+    ```
+2. Initialize a transporter
+    ```js
+    import {StdioClientTransport} from "@modelcontextprotocol/sdk/client/stdio.js"
+
+    const transport = new StdioClientTransport({
+        command: "node",
+        args: ["src/index.js"],
+        stderr:"ignore"
+    }) 
+    ```
+    > Make sure `command` + `args` = `node src/index.js` (command to start the server)
+
+3. connect the client with server
+    ```js
+    await client.connect(transport)
+    ```
+
+### Complete code
+```js
+import {Client} from "@modelcontextprotocol/sdk/client"
+import {StdioClientTransport} from "@modelcontextprotocol/sdk/client/stdio.js"
+
+const client = new Client(
+    {
+        name: "my-client",
+        version: "1.0.0",
+    },
+    {
+        capabilities:{
+            sampling:{}
+        }
+    }
+)
+
+const transport = new StdioClientTransport({
+    command: "node",
+    args: ["src/index.js"],
+    stderr:"ignore"
+}) 
+
+await client.connect(transport)
+
+const tools = await client.listTools()
+console.log(tools)
+
+const prompt = await client.listPrompts()
+console.log(prompt)
+
+const resource = await client.listResources()
+console.log(resource)
+```
+Output:
+```js
+{
+  tools: [
+    {
+      name: 'subtract',
+      description: 'subtract two numbers',
+      inputSchema: [Object],
+      execution: [Object]
+    },
+    {
+      name: 'add',
+      title: 'Add',
+      description: 'Add two numbers',
+      inputSchema: [Object],
+      execution: [Object]
+    }
+  ]
+}
+{
+  prompts: [
+    {
+      name: 'example-prompt',
+      description: 'example prompt',
+      arguments: [Array]
+    }
+  ]
+}
+{
+  resources: [
+    {
+      name: 'data',
+      title: 'random number',
+      uri: 'data://data',
+      description: 'return the array of random number',
+      mimeType: 'application/json'
+    },
+    {
+      name: '1',
+      title: 'Item 1',
+      uri: 'data://1',
+      description: 'Value: 10',
+      mimeType: 'application/json'
+    },
+    {
+      name: '2',
+      title: 'Item 2',
+      uri: 'data://2',
+      description: 'Value: 20',
+      mimeType: 'application/json'
+    }
+  ]
+}
+```
+### Calling the tool
+```js
+const sum = await client.callTool({
+    name:"add",
+    arguments:{a:1,b:2} // make sure it matches with the input schema of the tool
+})
+
+console.log(sum)
+```
+Output:
+```js
+{ content: [ { type: 'text', text: 'sum is 3' } ] }
+```
+
+### Calling resource
+```js
+const resources = await client.readResource({uri:"data://1"})
+console.log(resources)
+```
+output:
+```js
+{
+  contents: [ { uri: 'data://1', mimeType: 'application/json', text: '"1"' } ]
+}
+```
+### Calling the prompt
+```js
+const callPrompt = await client.getPrompt({
+    name:"example-prompt",
+    arguments:{name:"yadnesh",age:"20"} // pass only string argument
+}) 
+console.log(callPrompt)
+```
+output:
+```js
+{ messages: [ { role: 'user', content: { type: 'text', text: 'hi yadnesh your age is 20' } } ] }
+```
+
+Make sure to pass argument in a string only format only, as mcp client only accept the string argument to make it more deterministic and model-safe 
+
+also make sure that your server will also have input schema that accept the string argument
+```js
+{
+    name: z.string(),
+    age: z.number(), 
+},
+```
+the above input schema will not work as it accept the `age` as `number` but client can only pass `string`
+
+Therefor:
+```js
+{
+    name: z.string(),
+    age: z.string(),
+},
+```
+you can also parse it into an integer
+```js
+{
+    name: z.string(),
+    age: z.string().transform((value) => parseInt(value)),
+},
+```
 
 
 [Go To Top](#content)

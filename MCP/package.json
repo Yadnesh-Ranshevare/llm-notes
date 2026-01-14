@@ -6,7 +6,8 @@
     "type": "module",
     "scripts": {
         "start": "node src/index.js",
-        "inspect":"npx @modelcontextprotocol/inspector src/index.js"
+        "inspect":"npx @modelcontextprotocol/inspector src/index.js",
+        "client": "node src/client.js"
     },
     "author": "yadnesh ranshevare",
     "license": "ISC",

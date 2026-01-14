@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CreateMessageRequestParamsSchema, CreateMessageRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
+import { number, z } from "zod";
 
 const server = new McpServer({
     name: "my-mcp-server",
@@ -141,9 +141,9 @@ server.prompt(
     "example prompt",
     {
         name: z.string(),
-        age: z.number(),
+        age: z.string().transform((value) => parseInt(value)),
     },
-    async ({ name }) => {
+    async ({ name, age }) => {
         return {
             messages: [
                 {
