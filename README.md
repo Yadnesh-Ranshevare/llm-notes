@@ -27,7 +27,8 @@ Follow this roadmap to learn how modern AI systems are built:
 
 
 # Acknowledgements:
-- [CampusX](https://www.youtube.com/@campusx-official) – LangChain & LangGraph 
+- [Web Dev Simplified](https://www.youtube.com/@WebDevSimplified) - MCP in js
+- [CampusX](https://www.youtube.com/@campusx-official) – LangChain, LangGraph & MCP fundamentals
 - [Piyush Garg](https://www.youtube.com/@piyushgargdev) – LLM & Transformer architecture
 - [Harish Neel | AI](https://www.youtube.com/@harish_neel) – Advanced RAG concepts
 - [Krish Naik](https://www.youtube.com/@krishnaik06) – RAG fundamentals

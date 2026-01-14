@@ -6,12 +6,13 @@
     "type": "module",
     "scripts": {
         "start": "node src/index.js",
-        "inspect":"npx @modelcontextprotocol/inspector src/index.js",
+        "inspect": "npx @modelcontextprotocol/inspector src/index.js",
         "client": "node src/client.js"
     },
     "author": "yadnesh ranshevare",
     "license": "ISC",
     "dependencies": {
+        "@langchain/core": "^1.1.13",
         "@modelcontextprotocol/sdk": "^1.25.1",
         "zod": "^4.3.5"
     },
